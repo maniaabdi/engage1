@@ -2276,18 +2276,18 @@ struct get_obj_data;
 
 /*engage1*/
 struct cacheAioRequest {
+	Mutex lock;
 	int reqNum;
 	int status;
+	struct aiocb *paiocb;
 	bufferlist *pbl;
 	struct get_obj_data *op_data;
 	std::string oid;
-	off_t obj_ofs;
-        off_t read_ofs;
-	int fd;
-	void *data;
-        int size;
-	librados::AioCompletion *rados_comp; 			
-	cacheAioRequest() : reqNum(0), status(-1), pbl(NULL), op_data(NULL), obj_ofs(0), read_ofs(0), fd(-1), data(NULL), size(0), rados_comp(NULL) {};
+	off_t ofs;
+	librados::AioCompletion *lc;
+	std::string key;
+	off_t read_ofs;
+	cacheAioRequest() : lock("CacheAio"), reqNum(0), status(-1), paiocb(NULL), pbl(NULL), op_data(NULL), ofs(0), lc(NULL), read_ofs(0) {};
 };
 
 
@@ -2338,7 +2338,7 @@ struct get_obj_data : public RefCountedObject {
 	/*engage1*/
 	void add_pending_oid(std::string oid);
 	std::string get_pending_oid();
-	int add_cache_io(struct cacheAioRequest **cc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs,std::string key);
+	int add_cache_io(struct cacheAioRequest **cc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs,std::string key, librados::AioCompletion *lc);
 	void cache_get_completed_ios(struct cacheAioRequest *c);
 	void cache_check_completed_ios();
 	void cache_cancel_io(off_t ofs);

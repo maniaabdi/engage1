@@ -5857,8 +5857,8 @@ static void _get_obj_aio_completion_cb(completion_t cb, void *arg);
 get_obj_data::get_obj_data(CephContext *_cct)
 	: cct(_cct),
 	rados(NULL), ctx(NULL),
-	reqnum(0), total_read(0), lock("get_obj_data"), data_lock("get_obj_data::data_lock"), cache_lock("get_obj_data::cache_lock"),
-	client_cb(NULL),
+	total_read(0), lock("get_obj_data"), data_lock("get_obj_data::data_lock"), cache_lock("get_obj_data::cache_lock"),
+	client_cb(NULL), reqnum(0),
 	throttle(cct, "get_obj_data", cct->_conf->rgw_get_obj_window_size, false) {}
 	get_obj_data::~get_obj_data() { } 
 	void get_obj_data::set_cancelled(int r) {
@@ -5887,37 +5887,102 @@ std::string get_obj_data::get_pending_oid()
 /*engage1*/
 
 void get_obj_data::cache_check_completed_ios(){
+
+	//Mutex::Locker l(cache_lock);
+	ldout(cct, 20) << "Engage1, cache_check_completed_ios, num waiting ios=" << cache_aio_map.size() << dendl;
+	int r=0;
+	//int status;
+	again:
+	cache_lock.Lock();	
+	for (std::map<off_t, cacheAioRequest *>::iterator it=cache_aio_map.begin(); it!=cache_aio_map.end(); ++it)
+	{
+
+		cacheAioRequest *c = it->second;
+		//c->lock.Lock();
+		//status = c->status;
+		//c->lock.Unlock();
+
+		if (c->status == EINPROGRESS) {
+			c->lock.Lock();
+			c->status = aio_error(c->paiocb); 
+			c->lock.Unlock();
+			switch (c->status) {
+				case 0:
+					//c->lock.Lock();
+					//c->status = EINPROCESS;
+					//c->lock.Unlock();
+					cache_lock.Unlock();
+					cache_get_completed_ios(c);
+					goto again;
+					break;
+				case EINPROGRESS:
+					break;
+				default:
+					
+					cache_lock.Unlock();
+					librados::IoCtx ioctx(io_ctx);
+					ioctx.locator_set_key(c->key);
+
+					ObjectReadOperation op;
+					op.read(c->read_ofs,c->paiocb->aio_nbytes,c->pbl,NULL);
+					r = ioctx.aio_operate(c->oid, completion_map[c->ofs], &op, NULL);
+					ldout(cct, 20) << "Engage1 cache_check= " << r << " bl.length=" << c->pbl->length() << dendl;
+					cache_cancel_io(c->ofs);
+					goto again;
+					break;                       
+			}
+		}
+
+
+	}
+	cache_lock.Unlock();
+	
 }
 
-int get_obj_data::add_cache_io(struct cacheAioRequest **pc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs, std::string key)
+int get_obj_data::add_cache_io(struct cacheAioRequest **pc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs, std::string key, librados::AioCompletion *lc)
 {
+	//	Mutex::Locker l(cache_lock);
+	ldout(cct, 0) << "Engage1: start of add_cache_io " << dendl;
 	cacheAioRequest *c = new cacheAioRequest;
-	c->reqNum = reqnum; reqnum+=1;
+	ldout(cct, 0) << "Engage1: after new a AIORequest" << dendl;
+	c->reqNum = reqnum++;
 	c->pbl = pbl;
 	c->oid = oid;
-	c->obj_ofs = ofs;
+	c->ofs = ofs;
+	c->key = key;
+	c->lc = lc;
 	c->read_ofs = read_ofs;
 	c->status = EINPROGRESS;
 	c->op_data = this;
-        
-        c->data = malloc(len);
-        if (!c->data)
-        {
-          ldout(cct, 0) << "Engage1: ERROR: add_cache_io:: read ::open the file has return error "  << dendl;
-          return -1;
-        }
-        c->size = len;
 
+	ldout(cct, 0) << "Engage1: before getting location" << dendl;
 	std::string location = "/mnt/ssd1/cache/" + oid;
-	c->fd = ::open(location.c_str(), O_RDONLY);
-	if (c->fd < 0)
+	struct aiocb *cb =new struct aiocb;
+	memset(cb, 0, sizeof(struct aiocb));
+
+	cb->aio_fildes = ::open(location.c_str(), O_RDONLY);
+	if (cb->aio_fildes < 0)
 	{
-		ldout(cct, 0) << "ERROR: get_obj_data::add_cache_io open file failed:<< " << c->fd  << dendl;
+		//		cache_lock.unlock();
+		//		cache_lock.get_write();
+		ldout(cct, 0) << "Engage1: ERROR: add_cache_io:: read ::open the file has return error "  << dendl;
 		return -1;
 	}
 
+	ldout(cct, 0) << "Engage1: reach point add_io" << dendl;
+	cb->aio_buf = malloc(len);
+	cb->aio_nbytes = len;
+	cb->aio_sigevent.sigev_notify = SIGEV_SIGNAL;
+	cb->aio_sigevent.sigev_signo = SIG_ENG;
+	cb->aio_sigevent.sigev_value.sival_ptr = (void*)c;
+	c->paiocb = cb;
+
+	ldout(cct, 0) << "Engage1: reach point add_io 2" << dendl;
+
 	cache_lock.Lock();
+	ldout(cct, 0) << "Engage1: I think error source is here" << dendl;
 	cache_aio_map[ofs] = c;
+ 	ldout(cct, 0) << "Engage1: I Was wrong" << dendl;
 	cache_lock.Unlock();	
 	*pc = c;
 	return 0;
@@ -5925,11 +5990,25 @@ int get_obj_data::add_cache_io(struct cacheAioRequest **pc, bufferlist *pbl, std
 
 void get_obj_data::cache_get_completed_ios(cacheAioRequest *c){
 
-	ldout(cct, 0) << "engage1: error index:" << c->reqNum << ", pbl addr:" << std::hex << c->pbl << ", size:" << c->size << ", data+size:" << ((char*)c->data + c->size) << dendl;
-	c->pbl->append((char *)c->data, c->size);
-	cache_cancel_io(c->obj_ofs);
+	size_t read_bytes = aio_return(c->paiocb);
+	if(read_bytes == c->paiocb->aio_nbytes){
+		c->pbl->append((char *)c->paiocb->aio_buf,read_bytes);
+	}
+
+	ldout (cct, 0) << "Engage1: Error After here" << dendl;
+	/*lock.Lock();
+        map<off_t, librados::AioCompletion *>::iterator iter = completion_map.find(c->ofs);
+        if (iter == completion_map.end()) {
+                lock.Unlock();
+		cache_cancel_io(c->ofs);
+		return;
+        }
+	librados::AioCompletion *cb = iter->second;
+	lock.Unlock();
+*/
 	librados::IoCtx ioctx(io_ctx);
-	ioctx.cache_aio_operate(c->oid, c->rados_comp);
+	ioctx.cache_aio_operate(c->oid, c->lc);
+	cache_cancel_io(c->ofs);
 }
 
 
@@ -5943,8 +6022,10 @@ void get_obj_data::cache_cancel_io(off_t ofs){
         }
 
         struct cacheAioRequest *c = iter->second;
-	::close(c->fd);
-	free((void *)c->data); c->data=0;
+	//c->lock.Lock();
+	::close(c->paiocb->aio_fildes);
+	free((void *)c->paiocb->aio_buf); c->paiocb->aio_buf=0;
+	//c->lock.Unlock();
 	cache_aio_map.erase(ofs);	
 	cache_lock.Unlock();
 }
@@ -5959,6 +6040,7 @@ int get_obj_data::get_err_code() {
 
 int get_obj_data::wait_next_io(bool *done) {
 	lock.Lock();
+	ldout(cct, 20) << "Engage1, wait_next_io num completion_map=" << completion_map.size() << dendl;
 	map<off_t, librados::AioCompletion *>::iterator iter = completion_map.begin();
 	if (iter == completion_map.end()) {
 		*done = true;
@@ -6276,15 +6358,19 @@ int RGWRados::get_obj_iterate_cb(RGWObjectCtx *ctx, RGWObjState *astate,
 	if (check_cache(oid)) {
 
 		cacheAioRequest *cc;
-		d->add_cache_io(&cc, pbl, oid, len, obj_ofs, read_ofs, key);
-		cc->rados_comp = c;
+		ldout(cct, 20) << "Engage1, before add cache IO" << dendl;
+		d->add_cache_io(&cc, pbl, oid, len, obj_ofs, read_ofs, key, c);
+		ldout(cct, 20) << "Engage1, after add cache io" << dendl;
 		r = cache_aio_read(cc);	
-//		if (r != 0 ) {
-//			d->cache_cancel_io(obj_ofs);
-//			op.read(read_ofs, len, pbl, NULL);
-//			r = io_ctx.aio_operate(oid, c, &op, NULL);
-//			ldout(cct, 20) << "rados->aio_operate r=" << r << " bl.length=" << pbl->length() << dendl;
-//		}
+
+		//if reads from file fails
+		if (r != 0 ){
+			d->cache_cancel_io(obj_ofs);
+			op.read(read_ofs, len, pbl, NULL);
+			r = io_ctx.aio_operate(oid, c, &op, NULL);
+			ldout(cct, 20) << "rados->aio_operate r=" << r << " bl.length=" << pbl->length() << dendl;
+
+		}
 
 	}
 	else {
@@ -6332,6 +6418,7 @@ int RGWRados::Object::Read::iterate(int64_t ofs, int64_t end, RGWGetDataCB *cb)
 	}
 
 	while (!done) {
+		data->cache_check_completed_ios();
 		r = data->wait_next_io(&done);
 		if (r < 0) {
 			dout(10) << "get_obj_iterate() r=" << r << ", canceling all io" << dendl;
