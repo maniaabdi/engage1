@@ -921,6 +921,15 @@ namespace librados
      * @param snaps currently existing selfmanaged snapshot ids for this object
      * @returns 0 on success, negative error code on failure
      */
+    
+    /*engage1*/
+
+    int cache_aio_operate(const std::string& oid, AioCompletion *c);
+    /*engage1*/
+
+
+
+
     int aio_operate(const std::string& oid, AioCompletion *c,
 		    ObjectWriteOperation *op, snap_t seq,
 		    std::vector<snap_t>& snaps);

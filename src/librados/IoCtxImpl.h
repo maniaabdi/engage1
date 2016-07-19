@@ -170,6 +170,11 @@ struct librados::IoCtxImpl {
     void finish(int r);
   };
 
+  /*engage1*/
+  int cache_aio_operate_read(const object_t& oid,AioCompletionImpl *c);
+  /*engage1*/
+
+
   int aio_read(const object_t oid, AioCompletionImpl *c,
 	       bufferlist *pbl, size_t len, uint64_t off, uint64_t snapid);
   int aio_read(object_t oid, AioCompletionImpl *c,

@@ -1165,6 +1165,7 @@ class rgw_obj {
   std::string instance;
 public:
   const std::string& get_object() const { return object; }
+  const std::string& get_bucket_name() const { return bucket.name; } /*engage1*/
   const std::string& get_orig_obj() const { return orig_obj; }
   const std::string& get_loc() const { return loc; }
   const std::string& get_instance() const { return instance; }

@@ -269,7 +269,8 @@ public:
       unsigned p_off; // in *p
     public:
       // constructor.  position.
-      iterator() :
+     
+	 iterator() :
 	bl(0), ls(0), off(0), p_off(0) {}
       iterator(list *l, unsigned o=0) : 
 	bl(l), ls(&bl->_buffers), off(0), p(ls->begin()), p_off(0) {
@@ -512,7 +513,7 @@ public:
     uint32_t crc;
 
   public:
-    hash() : crc(0) { }
+    hash() : crc(0){ }
     hash(uint32_t init) : crc(init) { }
 
     void update(buffer::list& bl) {
