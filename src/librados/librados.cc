@@ -1486,7 +1486,6 @@ int librados::IoCtx::lock_shared(const std::string &oid, const std::string &name
 /*engage1*/
 int librados::IoCtx::cache_aio_operate(const std::string& oid, AioCompletion *c)
 {
-  if (!c) return -1;
   object_t obj(oid);
   return io_ctx_impl->cache_aio_operate_read(obj, c->pc);
 }

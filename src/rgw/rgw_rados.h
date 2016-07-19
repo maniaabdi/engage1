@@ -35,8 +35,6 @@ class RGWGC;
 
 #define RGW_BUCKET_INSTANCE_MD_PREFIX ".bucket.meta."
 
-#define EINPROCESS -100000
-
 static inline void prepend_bucket_marker(rgw_bucket& bucket, const string& orig_oid, string& oid)
 {
 	if (bucket.marker.empty() || orig_oid.empty()) {
@@ -1175,7 +1173,6 @@ struct RGWObjectCtx {
 
 class Finisher;
 
-
 class RGWRados
 {
 	friend class RGWGC;
@@ -1954,7 +1951,8 @@ class RGWRados
 	virtual bool check_cache(std::string oid){ return false; }
 	int flush_read_list(struct get_obj_data *d, std::string obj_key);
 	virtual int read_from_cache(bufferlist *bl, int len, std::string oid){return 0;}
-	virtual int cache_aio_read(struct cacheAioRequest *cc) {return 0;}
+	virtual int cache_aio_read(void *priv, librados::AioCompletion* c, 
+			bufferlist *plb, unsigned int len, string oid) {return 0;}
 	/*engage1*/
 
 
@@ -2274,23 +2272,6 @@ class RGWStoreManager {
 
 struct get_obj_data;
 
-/*engage1*/
-struct cacheAioRequest {
-	int reqNum;
-	int status;
-	bufferlist *pbl;
-	struct get_obj_data *op_data;
-	std::string oid;
-	off_t obj_ofs;
-        off_t read_ofs;
-	int fd;
-	void *data;
-        int size;
-	librados::AioCompletion *rados_comp; 			
-	cacheAioRequest() : reqNum(0), status(-1), pbl(NULL), op_data(NULL), obj_ofs(0), read_ofs(0), fd(-1), data(NULL), size(0), rados_comp(NULL) {};
-};
-
-
 struct get_obj_aio_data {
 	struct get_obj_data *op_data;
 	off_t ofs;
@@ -2310,8 +2291,6 @@ struct get_obj_data : public RefCountedObject {
 	map<off_t, get_obj_io> io_map;
 	map<off_t, librados::AioCompletion *> completion_map;
 	std::list<string> pending_oid_list; /*engage1*/
-	std::map<off_t, struct cacheAioRequest*> cache_aio_map; /* keep track of async ios */
-	int reqnum;	
 
 	uint64_t total_read;
 	Mutex lock;
@@ -2338,10 +2317,6 @@ struct get_obj_data : public RefCountedObject {
 	/*engage1*/
 	void add_pending_oid(std::string oid);
 	std::string get_pending_oid();
-	int add_cache_io(struct cacheAioRequest **cc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs,std::string key);
-	void cache_get_completed_ios(struct cacheAioRequest *c);
-	void cache_check_completed_ios();
-	void cache_cancel_io(off_t ofs);
 };
 
 template <class T>
