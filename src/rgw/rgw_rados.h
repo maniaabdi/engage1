@@ -18,6 +18,10 @@
 #include "rgw_rest_conn.h"
 #include "common/Throttle.h"
 
+#include <fcntl.h>
+#include <aio.h>
+
+
 class RGWWatcher;
 class SafeTimer;
 class ACLOwner;
@@ -2287,7 +2291,16 @@ struct cacheAioRequest {
 	librados::AioCompletion *lc;
 	std::string key;
 	off_t read_ofs;
+	
 	cacheAioRequest() : lock("CacheAio"), reqNum(0), status(-1), paiocb(NULL), pbl(NULL), op_data(NULL), ofs(0), lc(NULL), read_ofs(0) {};
+	
+	void release (){
+
+		lock.Lock();
+		free((void *)paiocb->aio_buf); paiocb->aio_buf=NULL;
+		::close(paiocb->aio_fildes);
+		lock.Unlock();
+	}
 };
 
 
@@ -2330,6 +2343,7 @@ struct get_obj_data : public RefCountedObject {
 	int get_err_code();
 	bool is_cancelled();
 	int wait_next_io(bool *done);
+	int wait_next_cache_io(bool *done); // engage1
 	void add_io(off_t ofs, off_t len, bufferlist **pbl, librados::AioCompletion **pc); 
 	void cancel_io(off_t ofs);
 	void cancel_all_io();
@@ -2341,7 +2355,8 @@ struct get_obj_data : public RefCountedObject {
 	int add_cache_io(struct cacheAioRequest **cc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs,std::string key, librados::AioCompletion *lc);
 	void cache_get_completed_ios(struct cacheAioRequest *c);
 	void cache_check_completed_ios();
-	void cache_cancel_io(off_t ofs);
+	void cache_unmap_io(off_t ofs);
+	int aio_read(cacheAioRequest *cc);
 };
 
 template <class T>

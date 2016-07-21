@@ -327,14 +327,14 @@ void ObjectDataInfo::put(std::string oid){
 DataCache::DataCache () 
      : io_type(ASYNC_IO), index(0), lock("DataCache"), cache_lock("DataCache::Mutex"), req_lock("DataCache::req")
 { 
-    //tmp_data = new char[0x400000];
+    tmp_data = new char[0x400000];
 
     
     //Set up the signal handler
-    //action.sa_sigaction = handle_cache_read_cb;
-    //action.sa_flags = SA_SIGINFO;
-    //sigemptyset(&action.sa_mask);
-    //sigaction(SIG_ENG, &action, NULL);
+    action.sa_sigaction = handle_cache_read_cb;
+    action.sa_flags = SA_SIGINFO;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIG_ENG, &action, NULL);
 }
 
 
@@ -479,24 +479,21 @@ END:
 void handle_cache_read_cb(int signal, siginfo_t *info, void*uap) {
 
     cacheAioRequest *c = (cacheAioRequest *)info->si_value.sival_ptr;
-    c->op_data->cache_check_completed_ios();
+    c->op_data->cache_get_completed_ios(c);
 }
 
 int DataCache::aio_read(cacheAioRequest *cc) {
     
     int r = 0;	
+   req_lock.Lock(); 
     if((r= ::aio_read(cc->paiocb)) != 0) {
         dout(0) << "ERROR: DataCache::aio_read ::aio_read"<< r << dendl; 
 	}
-
+   req_lock.Unlock();
    return r;
 }
 
 
 void DataCache::clear_timer() {
-        //dout(0) << "Engage1: CACHE TIME=" << cache_time << ", CEPH_TIME=" << ceph_time << dendl;
-        //ceph_time = 0;
-        //cache_time = 0;
-        //index=0;
 }
 /*engage1*/
