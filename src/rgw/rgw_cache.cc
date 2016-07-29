@@ -499,9 +499,9 @@ int DataCache::operate_aio_read(cacheAioRequest *c) {
 	io_prep_pread(aiocbp, c->fd, c->data, c->size, c->read_ofs);
 	aiocbp->data = (void *)c;
 
-	request_lock.Lock();
+//	request_lock.Lock();
 	r = io_submit(io_ctx, 1, &aiocbp);       
-	request_lock.Unlock();
+//	request_lock.Unlock();
 
 	return r;
 }
