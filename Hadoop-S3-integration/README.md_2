@@ -1,20 +1,15 @@
-Hadoop 2.7 and Rados-Gateway Integration using S3A
+Hadoop 2.7 and S3A Integration
 ==============================================
 
-The hadoop-aws module can be used for Hadoop and Rados-Gateway communication. You need to apply a few changes to convince hadoop to talk with radosgw. 
+The Apache Hadoop "S3A" works with Rados-Gateway
+
+
+ Here is a small but complete example, using a single-node hadoop system.
 
 
 
+Add the following keys to your core-site.xml file:
 
-
-Instructions
-------------------
-- Install Hadoop 2.7+. For the information about Hadoop installation, please visit :  https://hadoop.apache.org/docs/r2.7.2/hadoop-project-dist/hadoop-common/SingleCluster.html
-
-- Create a RGW user for S3 Access. For more information please visit: http://docs.ceph.com/docs/master/radosgw/config/
-The values of keys->access_key and keys->secret_key are needed for access validatio.
-
-- Add the following keys to your core-site.xml file:
 ```xml
 
 <property>
