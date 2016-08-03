@@ -9,7 +9,7 @@ The hadoop-aws module can be used for Hadoop and Rados-Gateway communication. Yo
 
 Instructions
 ------------------
-- Install Hadoop 2.7+. For the information about Hadoop installation, please visit :  https://hadoop.apache.org/docs/r2.7.2/hadoop-project-dist/hadoop-common/SingleCluster.html
+- Install Hadoop 2.7+. For the information about Hadoop installation, please visit :  https://hadoop.apache.org/docs/r2.7.0/hadoop-project-dist/hadoop-common/SingleCluster.html
 
 - Create a RGW user for S3 Access. For more information please visit: http://docs.ceph.com/docs/master/radosgw/config/
 The values of keys->access_key and keys->secret_key are needed for access validatio.
