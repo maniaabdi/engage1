@@ -13,6 +13,51 @@
 
 #include "librados.h"
 #include "rados_types.hpp"
+/*engage1*/
+
+/*struct cacheAioRequest {
+        Mutex lock;
+        int reqNum;
+        int status;
+        struct aiocb *paiocb;
+        bufferlist *pbl;
+        struct get_obj_data *op_data;
+        std::string oid;
+        off_t ofs;
+        librados::AioCompletion *lc;
+        std::string key;
+        off_t read_ofs;
+        Context *onack;
+        cacheAioRequest() : lock("CacheAio"), reqNum(0), status(-1), paiocb(NULL), pbl(NULL), op_data(NULL), ofs(0), lc(NULL), read_ofs(0) {};
+
+        void release (){
+
+                lock.Lock();
+                free((void *)paiocb->aio_buf); paiocb->aio_buf=NULL;
+                ::close(paiocb->aio_fildes);
+                lock.Unlock();
+        }
+
+        void cancel_io(){
+                lock.Lock();
+                status = ECANCEL;
+                lock.Unlock();
+        }
+};
+
+*/
+
+
+
+
+
+
+
+
+
+
+
+
 
 namespace libradosstriper
 {
@@ -33,6 +78,7 @@ namespace librados
   class ListObjectImpl;
   struct NObjectIteratorImpl;
 
+  struct cacheAioRequest;
   typedef void *list_ctx_t;
   typedef uint64_t auid_t;
   typedef void *config_t;
@@ -924,7 +970,7 @@ namespace librados
     
     /*engage1*/
 
-    int cache_aio_operate(const std::string& oid, AioCompletion *c);
+    int cache_aio_operate(const std::string& oid, cacheAioRequest *cc);
     /*engage1*/
 
 

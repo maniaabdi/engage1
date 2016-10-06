@@ -954,6 +954,15 @@ OPTION(rgw_override_bucket_index_max_shards, OPT_U32, 0)
  */
 OPTION(rgw_bucket_index_max_aio, OPT_U32, 8)
 
+
+/*engage1
+ *
+ *Data-Cache SSD Cache size. It should be in bytes
+ * */
+//OPTION(rgw_data_cache_size, OPT_LONGLONG, 0x10000000000 )
+//OPTION(rgw_data_cache_size, OPT_LONGLONG, 0x140000000 )
+OPTION(rgw_data_cache_size, OPT_LONGLONG, 0x7D00000000 )
+
 /**
  * whether or not the quota/gc threads should be started
  */

@@ -105,6 +105,7 @@ struct DataCache {
 
 private:
    std::map<string, ChunkDataInfo> cache_map;
+   std::list<string> outstanding_write_list;
    // std::map<string, std::list<std::string> > oid_list;
 
 //	std::list<timespec> oids_start_time;
@@ -113,6 +114,7 @@ private:
 	RWLock lock;
 	Mutex  cache_lock;
         Mutex  req_lock;
+        Mutex  eviction_lock;
         CephContext *cct;
 	char *tmp_data;
 	enum _io_type { 
@@ -123,8 +125,8 @@ private:
 	
     int index;
     struct sigaction action;
-
-
+    size_t free_data_cache_size; 
+    size_t outstanding_write_size;
 
 private:
     void add_io();
@@ -141,11 +143,13 @@ public:
     //reading from cache
     bool get(std::string oid);
     int read(bufferlist *bl, unsigned int len, std::string oid);
-    int aio_read(struct cacheAioRequest *cc);
-    
+    int aio_read(struct librados::cacheAioRequest *cc);
+    size_t random_eviction();
     void set_ctx(CephContext *_cct) {
        cct = _cct;
-    }
+       free_data_cache_size = cct->_conf->rgw_data_cache_size;
+    
+     }
 	
     void clear_timer (); 
 };
@@ -329,6 +333,7 @@ class RGWCache  : public T
   int init_rados() {
     int ret;
     cache.set_ctx(T::cct);
+    data_cache.set_ctx(T::cct);
     ret = T::init_rados();
     if (ret < 0)
       return ret;
@@ -387,7 +392,7 @@ public:
   void cache_handle_data(bufferlist bl, int len, std::string obj_key);
   bool check_cache(std::string oid);
   int read_from_cache(bufferlist *bl, int len, std::string oid);
-  int cache_aio_read(cacheAioRequest *cc);
+  int cache_aio_read(librados::cacheAioRequest *cc);
 
   int iterate_obj(RGWObjectCtx& obj_ctx, rgw_obj& obj,
         off_t ofs, off_t end,
@@ -761,32 +766,27 @@ int RGWCache<T>::watch_cb(uint64_t notify_id,
 /*engage1*/
 
 template <class T>
-void RGWCache<T>::put_cache( std::string oid, std::string obj_key)
-{
-        mydout(0) << "Engage1: put_cache with obj_key=" << obj_key << "oid:" << oid << dendl;
+void RGWCache<T>::put_cache( std::string oid, std::string obj_key){
         data_cache.put(obj_key, oid);
         T::put_cache(oid, obj_key);
 }
 
 template <class T>
-void RGWCache<T>::cache_handle_data(bufferlist bl, int len, std::string oid)
-{
-        mydout(0) << "Engage1: cache_handle_data: len=" << len << dendl;
+void RGWCache<T>::cache_handle_data(bufferlist bl, int len, std::string oid){
         data_cache.handle_data(bl, len, oid);
         T::cache_handle_data(bl, len, oid);
 }
 
 template <class T>
-bool RGWCache<T>::check_cache(std::string oid)
-{  
+bool RGWCache<T>::check_cache(std::string oid){
+  
         T::check_cache(oid);
         return  data_cache.get(oid);
 }
 
 template <class T>
-int RGWCache<T>::read_from_cache(bufferlist *bl, int len, std::string oid)
-{
-        mydout(0) << "Engage1: read_from_cache: len=" << len << dendl;
+int RGWCache<T>::read_from_cache(bufferlist *bl, int len, std::string oid){
+
         T::read_from_cache(bl, len, oid);
         return data_cache.read(bl, len , oid);
 }
@@ -796,18 +796,15 @@ int RGWCache<T>::iterate_obj(RGWObjectCtx& obj_ctx, rgw_obj& obj,
                           off_t ofs, off_t end,
                           uint64_t max_chunk_size,
                           int (*iterate_obj_cb)(rgw_obj&, off_t, off_t, off_t, bool, RGWObjState *, void *),
-                          void *arg)
-{
-	int r = T::iterate_obj(obj_ctx, obj, ofs, end, max_chunk_size, iterate_obj_cb, arg);
+                          void *arg) {
 
-	/// mydout(0) << "Engage1: CACHE TIME=" << cache_time << ", CEPH_TIME=" << ceph_time << dendl;
-	
+	int r = T::iterate_obj(obj_ctx, obj, ofs, end, max_chunk_size, iterate_obj_cb, arg);
 	data_cache.clear_timer();
 	return r;
 }
 template <class T>
-int RGWCache<T>::cache_aio_read(cacheAioRequest *cc)
-{
+int RGWCache<T>::cache_aio_read(librados::cacheAioRequest *cc) {
+
     int r = T::cache_aio_read(cc);
     r = data_cache.aio_read(cc);
     return r;

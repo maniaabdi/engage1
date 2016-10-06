@@ -730,18 +730,19 @@ int librados::IoCtxImpl::aio_append(const object_t &oid, AioCompletionImpl *c,
 }
 
 /*engage1*/
-int librados::IoCtxImpl::cache_aio_operate_read(const object_t &oid,AioCompletionImpl *c)
+int librados::IoCtxImpl::cache_aio_operate_read(const object_t &oid, AioCompletionImpl *c, cacheAioRequest *cc)
 {
     Context *onack = new C_aio_Ack(c);
     ldout(client->cct, 20) << "engage1 cache_aio_operate_read oid:" << oid << dendl;
 
     c->is_read = true;
     c->io = this;
-
-    int rc = 0;
+    cc->onack = onack;
+    
+    /*int rc = 0;
     if (onack) {
        onack->complete(rc);
-    }
+    }*/
     return 0;
 }
 /*engage1*/

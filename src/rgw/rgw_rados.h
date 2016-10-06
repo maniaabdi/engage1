@@ -40,6 +40,7 @@ class RGWGC;
 #define RGW_BUCKET_INSTANCE_MD_PREFIX ".bucket.meta."
 
 #define EINPROCESS -100000
+#define ECANCEL	   -100001
 
 static inline void prepend_bucket_marker(rgw_bucket& bucket, const string& orig_oid, string& oid)
 {
@@ -1958,7 +1959,7 @@ class RGWRados
 	virtual bool check_cache(std::string oid){ return false; }
 	int flush_read_list(struct get_obj_data *d, std::string obj_key);
 	virtual int read_from_cache(bufferlist *bl, int len, std::string oid){return 0;}
-	virtual int cache_aio_read(struct cacheAioRequest *cc) {return 0;}
+	virtual int cache_aio_read(struct librados::cacheAioRequest *cc) {return 0;}
 	/*engage1*/
 
 
@@ -2279,7 +2280,7 @@ class RGWStoreManager {
 struct get_obj_data;
 
 /*engage1*/
-struct cacheAioRequest {
+struct librados::cacheAioRequest {
 	Mutex lock;
 	int reqNum;
 	int status;
@@ -2291,7 +2292,7 @@ struct cacheAioRequest {
 	librados::AioCompletion *lc;
 	std::string key;
 	off_t read_ofs;
-	
+	Context *onack;
 	cacheAioRequest() : lock("CacheAio"), reqNum(0), status(-1), paiocb(NULL), pbl(NULL), op_data(NULL), ofs(0), lc(NULL), read_ofs(0) {};
 	
 	void release (){
@@ -2299,6 +2300,12 @@ struct cacheAioRequest {
 		lock.Lock();
 		free((void *)paiocb->aio_buf); paiocb->aio_buf=NULL;
 		::close(paiocb->aio_fildes);
+		lock.Unlock();
+	}
+
+	void cancel_io(){
+		lock.Lock();
+		status = ECANCEL;
 		lock.Unlock();
 	}
 };
@@ -2323,13 +2330,14 @@ struct get_obj_data : public RefCountedObject {
 	map<off_t, get_obj_io> io_map;
 	map<off_t, librados::AioCompletion *> completion_map;
 	std::list<string> pending_oid_list; /*engage1*/
-	std::map<off_t, struct cacheAioRequest*> cache_aio_map; /* keep track of async ios */
+	std::map<off_t, struct librados::cacheAioRequest*> cache_aio_map; /* keep track of async ios */
 	int reqnum;	
 
 	uint64_t total_read;
 	Mutex lock;
 	Mutex data_lock;
 	Mutex cache_lock; /*engage1*/
+	Mutex reception_lock;
 	list<get_obj_aio_data> aio_data;
 	RGWGetDataCB *client_cb;
 	atomic_t cancelled;
@@ -2352,11 +2360,11 @@ struct get_obj_data : public RefCountedObject {
 	/*engage1*/
 	void add_pending_oid(std::string oid);
 	std::string get_pending_oid();
-	int add_cache_io(struct cacheAioRequest **cc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs,std::string key, librados::AioCompletion *lc);
-	void cache_get_completed_ios(struct cacheAioRequest *c);
+	int add_cache_io(struct librados::cacheAioRequest **cc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs,std::string key, librados::AioCompletion *lc);
+	void cache_get_completed_ios(struct librados::cacheAioRequest *c);
 	void cache_check_completed_ios();
 	void cache_unmap_io(off_t ofs);
-	int aio_read(cacheAioRequest *cc);
+	int aio_read(librados::cacheAioRequest *cc);
 };
 
 template <class T>

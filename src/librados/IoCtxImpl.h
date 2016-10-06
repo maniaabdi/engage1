@@ -25,6 +25,7 @@
 #include "include/xlist.h"
 #include "osd/osd_types.h"
 #include "osdc/Objecter.h"
+#include "rgw/rgw_rados.h"
 
 class RadosClient;
 
@@ -171,7 +172,7 @@ struct librados::IoCtxImpl {
   };
 
   /*engage1*/
-  int cache_aio_operate_read(const object_t& oid,AioCompletionImpl *c);
+  int cache_aio_operate_read(const object_t& oid,AioCompletionImpl *c, cacheAioRequest *cc);
   /*engage1*/
 
 
