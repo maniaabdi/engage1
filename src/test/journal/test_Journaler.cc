@@ -2,7 +2,6 @@
 // vim: ts=8 sw=2 smarttab
 
 #include "journal/Journaler.h"
-#include "journal/Settings.h"
 #include "include/stringify.h"
 #include "gtest/gtest.h"
 #include "test/librados/test.h"
@@ -22,7 +21,7 @@ public:
     RadosTestFixture::SetUp();
     m_journal_id = get_temp_journal_id();
     m_journaler = new journal::Journaler(m_work_queue, m_timer, &m_timer_lock,
-                                         m_ioctx, m_journal_id, CLIENT_ID, {});
+                                         m_ioctx, m_journal_id, CLIENT_ID, 5);
   }
 
   virtual void TearDown() {
@@ -48,7 +47,7 @@ public:
 
   int register_client(const std::string &client_id, const std::string &desc) {
     journal::Journaler journaler(m_work_queue, m_timer, &m_timer_lock,
-                                 m_ioctx, m_journal_id, client_id, {});
+                                 m_ioctx, m_journal_id, client_id, 5);
     bufferlist data;
     data.append(desc);
     C_SaferCond cond;
@@ -58,7 +57,7 @@ public:
 
   int update_client(const std::string &client_id, const std::string &desc) {
     journal::Journaler journaler(m_work_queue, m_timer, &m_timer_lock,
-                                 m_ioctx, m_journal_id, client_id, {});
+                                 m_ioctx, m_journal_id, client_id, 5);
     bufferlist data;
     data.append(desc);
     C_SaferCond cond;
@@ -68,7 +67,7 @@ public:
 
   int unregister_client(const std::string &client_id) {
     journal::Journaler journaler(m_work_queue, m_timer, &m_timer_lock,
-                                 m_ioctx, m_journal_id, client_id, {});
+                                 m_ioctx, m_journal_id, client_id, 5);
     C_SaferCond cond;
     journaler.unregister_client(&cond);
     return cond.wait();

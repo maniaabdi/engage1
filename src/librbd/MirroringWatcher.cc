@@ -3,7 +3,6 @@
 
 #include "librbd/MirroringWatcher.h"
 #include "include/rbd_types.h"
-#include "include/rados/librados.hpp"
 #include "common/errno.h"
 
 #define dout_subsys ceph_subsys_rbd

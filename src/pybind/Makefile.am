@@ -27,5 +27,3 @@ endif # WITH_RADOS
 
 endif # WITH_CYTHON
 endif # ENABLE_CLIENT
-
-EXTRA_DIST += pybind/CMakeLists.txt

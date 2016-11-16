@@ -162,7 +162,7 @@ namespace librbd {
 
       request_sent = true;
       AioObjectWrite *req = new AioObjectWrite(image_ctx, oid, object_no, off,
-                                               bl, snapc, this, 0);
+                                               bl, snapc, this);
       req->send();
     }
   };
@@ -274,7 +274,7 @@ namespace librbd {
 					      journal_tid));
     } else {
       AioObjectWrite *req = new AioObjectWrite(m_ictx, oid.name, object_no,
-					       off, bl, snapc, req_comp, 0);
+					       off, bl, snapc, req_comp);
       req->send();
     }
     return ++m_tid;

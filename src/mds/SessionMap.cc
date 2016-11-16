@@ -52,7 +52,7 @@ void SessionMap::dump()
 	     << " state " << p->second->get_state_name()
 	     << " completed " << p->second->info.completed_requests
 	     << " prealloc_inos " << p->second->info.prealloc_inos
-	     << " used_inos " << p->second->info.used_inos
+	     << " used_ions " << p->second->info.used_inos
 	     << dendl;
 }
 
@@ -854,7 +854,7 @@ int Session::check_access(CInode *in, unsigned mask,
     path = in->get_projected_inode()->stray_prior_path;
     dout(20) << __func__ << " stray_prior_path " << path << dendl;
   } else {
-    in->make_path_string(path, in->get_projected_parent_dn());
+    in->make_path_string(path, false, in->get_projected_parent_dn());
     dout(20) << __func__ << " path " << path << dendl;
   }
   if (path.length())

@@ -437,14 +437,6 @@ void librados::ObjectWriteOperation::setxattr(const char *name, const bufferlist
   o->setxattr(name, v);
 }
 
-void librados::ObjectWriteOperation::setxattr(const char *name,
-					      const buffer::list&& v)
-{
-  ::ObjectOperation *o = &impl->o;
-  o->setxattr(name, std::move(v));
-}
-
-
 void librados::ObjectWriteOperation::omap_set(
   const map<string, bufferlist> &map)
 {
@@ -1499,6 +1491,14 @@ int librados::IoCtx::aio_operate(const std::string& oid, AioCompletion *c,
 				       translate_flags(flags), pbl);
 }
 
+/*engage1*/
+int librados::IoCtx::cache_aio_operate(const std::string& oid, cacheAioRequest *cc)
+{
+        if (!cc) return -1;
+        object_t obj(oid);
+        return io_ctx_impl->cache_aio_operate_read(obj, cc->lc->pc, cc);
+}
+/*engage1*/
 
 void librados::IoCtx::snap_set_read(snap_t seq)
 {

@@ -146,5 +146,3 @@ endif
 erasure-code/jerasure/ErasureCodePluginSelectJerasure.cc: ./ceph_ver.h
 
 erasure_codelib_LTLIBRARIES += libec_jerasure.la
-
-EXTRA_DIST += erasure-code/jerasure/CMakeLists.txt

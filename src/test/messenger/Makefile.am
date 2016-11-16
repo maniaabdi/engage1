@@ -74,5 +74,3 @@ noinst_PROGRAMS += \
 
 endif # ENABLE_XIO
 endif # ENABLE_SERVER
-
-EXTRA_DIST += test/messenger/CMakeLists.txt

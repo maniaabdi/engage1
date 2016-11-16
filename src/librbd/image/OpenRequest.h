@@ -4,6 +4,7 @@
 #ifndef CEPH_LIBRBD_IMAGE_OPEN_REQUEST_H
 #define CEPH_LIBRBD_IMAGE_OPEN_REQUEST_H
 
+#include "include/int_types.h"
 #include "include/buffer.h"
 #include <map>
 #include <string>

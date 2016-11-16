@@ -20,7 +20,6 @@ class SafeTimer;
 namespace journal {
 
 struct ReplayHandler;
-struct Settings;
 
 struct MockFuture {
   static MockFuture *s_instance;
@@ -102,7 +101,6 @@ struct MockJournaler {
                                           Context*));
 
   MOCK_METHOD2(register_client, void(const bufferlist &, Context *));
-  MOCK_METHOD1(unregister_client, void(Context *));
   MOCK_METHOD3(get_client, void(const std::string &, cls::journal::Client *,
                                 Context *));
   MOCK_METHOD2(get_cached_client, int(const std::string&, cls::journal::Client*));
@@ -110,8 +108,6 @@ struct MockJournaler {
 
   MOCK_METHOD3(get_tag, void(uint64_t, cls::journal::Tag *, Context *));
   MOCK_METHOD3(get_tags, void(uint64_t, journal::Journaler::Tags*, Context*));
-  MOCK_METHOD4(get_tags, void(uint64_t, uint64_t, journal::Journaler::Tags*,
-                              Context*));
 
   MOCK_METHOD1(start_replay, void(::journal::ReplayHandler *replay_handler));
   MOCK_METHOD2(start_live_replay, void(ReplayHandler *, double));
@@ -132,21 +128,18 @@ struct MockJournaler {
   MOCK_METHOD1(committed, void(const MockFutureProxy &future));
   MOCK_METHOD1(flush_commit_position, void(Context*));
 
-  MOCK_METHOD1(add_listener, void(JournalMetadataListener *));
-  MOCK_METHOD1(remove_listener, void(JournalMetadataListener *));
-
 };
 
 struct MockJournalerProxy {
   template <typename IoCtxT>
   MockJournalerProxy(IoCtxT &header_ioctx, const std::string &,
-                     const std::string &, const Settings&) {
+                     const std::string &, double) {
     MockJournaler::get_instance().construct();
   }
 
   MockJournalerProxy(ContextWQ *work_queue, SafeTimer *timer, Mutex *timer_lock,
                      librados::IoCtx &header_ioctx, const std::string &journal_id,
-                     const std::string &client_id, const Settings&) {
+                     const std::string &client_id, double commit_interval) {
     MockJournaler::get_instance().construct();
   }
 
@@ -162,7 +155,6 @@ struct MockJournalerProxy {
   int register_client(const bufferlist &data) {
     return -EINVAL;
   }
-
   void allocate_tag(uint64_t, const bufferlist &,
                     cls::journal::Tag*, Context *on_finish) {
     on_finish->complete(-EINVAL);
@@ -196,10 +188,6 @@ struct MockJournalerProxy {
     MockJournaler::get_instance().register_client(data, on_finish);
   }
 
-  void unregister_client(Context *on_finish) {
-    MockJournaler::get_instance().unregister_client(on_finish);
-  }
-
   void get_client(const std::string &client_id, cls::journal::Client *client,
                   Context *on_finish) {
     MockJournaler::get_instance().get_client(client_id, client, on_finish);
@@ -221,11 +209,6 @@ struct MockJournalerProxy {
   void get_tags(uint64_t tag_class, journal::Journaler::Tags *tags,
                 Context *on_finish) {
     MockJournaler::get_instance().get_tags(tag_class, tags, on_finish);
-  }
-  void get_tags(uint64_t start_after_tag_tid, uint64_t tag_class,
-                journal::Journaler::Tags *tags, Context *on_finish) {
-    MockJournaler::get_instance().get_tags(start_after_tag_tid, tag_class, tags,
-                                           on_finish);
   }
 
   void start_replay(::journal::ReplayHandler *replay_handler) {
@@ -282,14 +265,6 @@ struct MockJournalerProxy {
 
   void flush_commit_position(Context *on_finish) {
     MockJournaler::get_instance().flush_commit_position(on_finish);
-  }
-
-  void add_listener(JournalMetadataListener *listener) {
-    MockJournaler::get_instance().add_listener(listener);
-  }
-
-  void remove_listener(JournalMetadataListener *listener) {
-    MockJournaler::get_instance().remove_listener(listener);
   }
 };
 

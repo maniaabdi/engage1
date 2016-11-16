@@ -11,7 +11,6 @@
 #include "journal/Journaler.h"
 #include "journal/ReplayEntry.h"
 #include "journal/ReplayHandler.h"
-#include "journal/Settings.h"
 #include <list>
 #include <boost/variant.hpp>
 
@@ -67,7 +66,7 @@ public:
 
   journal::Journaler *create_journaler(librbd::ImageCtx *ictx) {
     journal::Journaler *journaler = new journal::Journaler(
-      ictx->md_ctx, ictx->id, "dummy client", {});
+      ictx->md_ctx, ictx->id, "dummy client", 1);
 
     int r = journaler->register_client(bufferlist());
     if (r < 0) {
@@ -159,9 +158,6 @@ TEST_F(TestJournalEntries, AioWrite) {
 
 TEST_F(TestJournalEntries, AioDiscard) {
   REQUIRE_FEATURE(RBD_FEATURE_JOURNALING);
-
-  CephContext* cct = reinterpret_cast<CephContext*>(_rados.cct());
-  REQUIRE(!cct->_conf->rbd_skip_partial_discard);
 
   librbd::ImageCtx *ictx;
   ASSERT_EQ(0, open_image(m_image_name, &ictx));

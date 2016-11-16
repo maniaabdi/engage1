@@ -84,11 +84,6 @@ void TestMockFixture::initialize_features(librbd::ImageCtx *ictx,
   }
 }
 
-void TestMockFixture::expect_is_journal_appending(librbd::MockJournal &mock_journal,
-                                                  bool appending) {
-  EXPECT_CALL(mock_journal, is_journal_appending()).WillOnce(Return(appending));
-}
-
 void TestMockFixture::expect_is_journal_replaying(librbd::MockJournal &mock_journal) {
   EXPECT_CALL(mock_journal, is_journal_replaying()).WillOnce(Return(false));
 }
@@ -104,13 +99,9 @@ void TestMockFixture::expect_allocate_op_tid(librbd::MockImageCtx &mock_image_ct
   }
 }
 
-void TestMockFixture::expect_append_op_event(librbd::MockImageCtx &mock_image_ctx,
-                                             bool can_affect_io, int r) {
+void TestMockFixture::expect_append_op_event(librbd::MockImageCtx &mock_image_ctx, int r) {
   if (mock_image_ctx.journal != nullptr) {
-    if (can_affect_io) {
-      expect_is_journal_replaying(*mock_image_ctx.journal);
-    }
-    expect_is_journal_appending(*mock_image_ctx.journal, true);
+    expect_is_journal_replaying(*mock_image_ctx.journal);
     expect_allocate_op_tid(mock_image_ctx);
     EXPECT_CALL(*mock_image_ctx.journal, append_op_event_mock(_, _, _))
                   .WillOnce(WithArg<2>(CompleteContext(r, mock_image_ctx.image_ctx->op_work_queue)));
@@ -119,10 +110,9 @@ void TestMockFixture::expect_append_op_event(librbd::MockImageCtx &mock_image_ct
 
 void TestMockFixture::expect_commit_op_event(librbd::MockImageCtx &mock_image_ctx, int r) {
   if (mock_image_ctx.journal != nullptr) {
-    expect_is_journal_appending(*mock_image_ctx.journal, true);
+    expect_is_journal_replaying(*mock_image_ctx.journal);
     expect_is_journal_ready(*mock_image_ctx.journal);
-    EXPECT_CALL(*mock_image_ctx.journal, commit_op_event(1U, r, _))
-                  .WillOnce(WithArg<2>(CompleteContext(r, mock_image_ctx.image_ctx->op_work_queue)));
+    EXPECT_CALL(*mock_image_ctx.journal, commit_op_event(1U, r));
   }
 }
 

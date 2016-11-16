@@ -1,6 +1,5 @@
 libcommon_internal_la_SOURCES = \
 	ceph_ver.c \
-	common/AsyncOpTracker.cc \
 	common/DecayCounter.cc \
 	common/LogClient.cc \
 	common/LogEntry.cc \
@@ -145,7 +144,7 @@ noinst_LTLIBRARIES += libcommon_crc.la
 
 if HAVE_ARMV8_CRC
 libcommon_crc_aarch64_la_SOURCES = common/crc32c_aarch64.c
-libcommon_crc_aarch64_la_CFLAGS = $(AM_CFLAGS) $(ARM_ARCH_FLAGS)
+libcommon_crc_aarch64_la_CFLAGS = $(AM_CFLAGS) $(ARM_CRC_FLAGS)
 LIBCOMMON_DEPS += libcommon_crc_aarch64.la
 noinst_LTLIBRARIES += libcommon_crc_aarch64.la
 endif
@@ -179,7 +178,6 @@ libcommon_la_LIBADD = $(LIBCOMMON_DEPS)
 noinst_LTLIBRARIES += libcommon.la
 
 noinst_HEADERS += \
-	common/AsyncOpTracker.h \
 	common/BackTrace.h \
 	common/RefCountedObj.h \
 	common/HeartbeatMap.h \

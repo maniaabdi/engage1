@@ -20,5 +20,3 @@ libceph_snappy_la_LDFLAGS += -export-symbols-regex '.*__compressor_.*'
 endif
 
 compressorlib_LTLIBRARIES += libceph_snappy.la
-
-EXTRA_DIST += compressor/snappy/CMakeLists.txt

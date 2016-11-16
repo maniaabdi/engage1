@@ -6,6 +6,7 @@
 
 #include "include/Context.h"
 #include "include/atomic.h"
+#include "common/Cond.h"
 #include "common/RWLock.h"
 #include "common/WorkQueue.h"
 #include <list>

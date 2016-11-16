@@ -19,7 +19,7 @@
 
 #define dout_subsys ceph_subsys_journaler
 #undef dout_prefix
-#define dout_prefix *_dout << "Journaler: " << this << " "
+#define dout_prefix *_dout << "Journaler: "
 
 namespace journal {
 
@@ -68,26 +68,25 @@ Journaler::Threads::~Threads() {
 
 Journaler::Journaler(librados::IoCtx &header_ioctx,
                      const std::string &journal_id,
-                     const std::string &client_id, const Settings &settings)
+                     const std::string &client_id, double commit_interval)
     : m_threads(new Threads(reinterpret_cast<CephContext*>(header_ioctx.cct()))),
       m_client_id(client_id) {
   set_up(m_threads->work_queue, m_threads->timer, &m_threads->timer_lock,
-         header_ioctx, journal_id, settings);
+         header_ioctx, journal_id, commit_interval);
 }
 
 Journaler::Journaler(ContextWQ *work_queue, SafeTimer *timer,
                      Mutex *timer_lock, librados::IoCtx &header_ioctx,
 		     const std::string &journal_id,
-		     const std::string &client_id, const Settings &settings)
+		     const std::string &client_id, double commit_interval)
     : m_client_id(client_id) {
   set_up(work_queue, timer, timer_lock, header_ioctx, journal_id,
-         settings);
+         commit_interval);
 }
 
 void Journaler::set_up(ContextWQ *work_queue, SafeTimer *timer,
                        Mutex *timer_lock, librados::IoCtx &header_ioctx,
-                       const std::string &journal_id,
-                       const Settings &settings) {
+                       const std::string &journal_id, double commit_interval) {
   m_header_ioctx.dup(header_ioctx);
   m_cct = reinterpret_cast<CephContext *>(m_header_ioctx.cct());
 
@@ -96,18 +95,13 @@ void Journaler::set_up(ContextWQ *work_queue, SafeTimer *timer,
 
   m_metadata = new JournalMetadata(work_queue, timer, timer_lock,
                                    m_header_ioctx, m_header_oid, m_client_id,
-                                   settings);
+                                   commit_interval);
   m_metadata->get();
 }
 
 Journaler::~Journaler() {
   if (m_metadata != nullptr) {
     assert(!m_metadata->is_initialized());
-    if (!m_initialized) {
-      // never initialized -- ensure any in-flight ops are complete
-      // since we wouldn't expect shut_down to be invoked
-      m_metadata->wait_for_ops();
-    }
     m_metadata->put();
     m_metadata = nullptr;
   }
@@ -129,7 +123,6 @@ int Journaler::exists(bool *header_exists) const {
 }
 
 void Journaler::init(Context *on_init) {
-  m_initialized = true;
   m_metadata->init(new C_InitJournaler(this, on_init));
 }
 
@@ -251,14 +244,6 @@ void Journaler::flush_commit_position(Context *on_safe) {
   m_metadata->flush_commit_position(on_safe);
 }
 
-void Journaler::add_listener(JournalMetadataListener *listener) {
-  m_metadata->add_listener(listener);
-}
-
-void Journaler::remove_listener(JournalMetadataListener *listener) {
-  m_metadata->remove_listener(listener);
-}
-
 int Journaler::register_client(const bufferlist &data) {
   C_SaferCond cond;
   register_client(data, &cond);
@@ -319,12 +304,7 @@ void Journaler::get_tag(uint64_t tag_tid, Tag *tag, Context *on_finish) {
 }
 
 void Journaler::get_tags(uint64_t tag_class, Tags *tags, Context *on_finish) {
-  m_metadata->get_tags(0, tag_class, tags, on_finish);
-}
-
-void Journaler::get_tags(uint64_t start_after_tag_tid, uint64_t tag_class,
-                         Tags *tags, Context *on_finish) {
-  m_metadata->get_tags(start_after_tag_tid, tag_class, tags, on_finish);
+  m_metadata->get_tags(tag_class, tags, on_finish);
 }
 
 void Journaler::start_replay(ReplayHandler *replay_handler) {
@@ -406,13 +386,7 @@ void Journaler::stop_append(Context *on_safe) {
 }
 
 uint64_t Journaler::get_max_append_size() const {
-  uint64_t max_payload_size = m_metadata->get_object_size() -
-                              Entry::get_fixed_size();
-  if (m_metadata->get_settings().max_payload_bytes > 0) {
-    max_payload_size = MIN(max_payload_size,
-                           m_metadata->get_settings().max_payload_bytes);
-  }
-  return max_payload_size;
+  return m_metadata->get_object_size() - Entry::get_fixed_size();
 }
 
 Future Journaler::append(uint64_t tag_tid, const bufferlist &payload_bl) {

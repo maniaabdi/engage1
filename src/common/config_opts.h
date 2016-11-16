@@ -401,8 +401,7 @@ OPTION(client_permissions, OPT_BOOL, true)
 OPTION(client_dirsize_rbytes, OPT_BOOL, true)
 
 // note: the max amount of "in flight" dirty data is roughly (max - target)
-OPTION(fuse_use_invalidate_cb, OPT_BOOL, true) // use fuse 2.8+ invalidate callback to keep page cache consistent
-OPTION(fuse_disable_pagecache, OPT_BOOL, false)
+OPTION(fuse_use_invalidate_cb, OPT_BOOL, false) // use fuse 2.8+ invalidate callback to keep page cache consistent
 OPTION(fuse_allow_other, OPT_BOOL, true)
 OPTION(fuse_default_permissions, OPT_BOOL, true)
 OPTION(fuse_big_writes, OPT_BOOL, true)
@@ -483,7 +482,6 @@ OPTION(mds_bal_merge_rd, OPT_FLOAT, 1000)
 OPTION(mds_bal_merge_wr, OPT_FLOAT, 1000)
 OPTION(mds_bal_interval, OPT_INT, 10)           // seconds
 OPTION(mds_bal_fragment_interval, OPT_INT, 5)      // seconds
-OPTION(mds_bal_fragment_size_max, OPT_INT, 10000*10) // order of magnitude higher than split size
 OPTION(mds_bal_idle_threshold, OPT_FLOAT, 0)
 OPTION(mds_bal_max, OPT_INT, -1)
 OPTION(mds_bal_max_until, OPT_INT, -1)
@@ -524,6 +522,7 @@ OPTION(mds_inject_traceless_reply_probability, OPT_DOUBLE, 0) /* percentage
 OPTION(mds_wipe_sessions, OPT_BOOL, 0)
 OPTION(mds_wipe_ino_prealloc, OPT_BOOL, 0)
 OPTION(mds_skip_ino, OPT_INT, 0)
+OPTION(max_mds, OPT_INT, 1)
 OPTION(mds_standby_for_name, OPT_STR, "")
 OPTION(mds_standby_for_rank, OPT_INT, -1)
 OPTION(mds_standby_for_fscid, OPT_INT, -1)
@@ -1172,7 +1171,6 @@ OPTION(rbd_enable_alloc_hint, OPT_BOOL, true) // when writing a object, it will 
 OPTION(rbd_tracing, OPT_BOOL, false) // true if LTTng-UST tracepoints should be enabled
 OPTION(rbd_validate_pool, OPT_BOOL, true) // true if empty pools should be validated for RBD compatibility
 OPTION(rbd_validate_names, OPT_BOOL, true) // true if image specs should be validated
-OPTION(rbd_mirroring_resync_after_disconnect, OPT_BOOL, false) // automatically start image resync after mirroring is disconnected due to being laggy
 
 /*
  * The following options change the behavior for librbd's image creation methods that
@@ -1212,17 +1210,6 @@ OPTION(rbd_journal_object_flush_interval, OPT_INT, 0) // maximum number of pendi
 OPTION(rbd_journal_object_flush_bytes, OPT_INT, 0) // maximum number of pending bytes per journal object
 OPTION(rbd_journal_object_flush_age, OPT_DOUBLE, 0) // maximum age (in seconds) for pending commits
 OPTION(rbd_journal_pool, OPT_STR, "") // pool for journal objects
-OPTION(rbd_journal_max_payload_bytes, OPT_U32, 16384) // maximum journal payload size before splitting
-OPTION(rbd_journal_max_concurrent_object_sets, OPT_INT, 0) // maximum number of object sets a journal client can be behind before it is automatically unregistered
-
-/**
- * RBD Mirror options
- */
-OPTION(rbd_mirror_journal_commit_age, OPT_DOUBLE, 5) // commit time interval, seconds
-OPTION(rbd_mirror_journal_poll_age, OPT_DOUBLE, 5) // maximum age (in seconds) between successive journal polls
-OPTION(rbd_mirror_journal_max_fetch_bytes, OPT_U32, 32768) // maximum bytes to read from each journal data object per fetch
-OPTION(rbd_mirror_sync_point_update_age, OPT_DOUBLE, 30) // number of seconds between each update of the image sync point object number
-OPTION(rbd_mirror_concurrent_image_syncs, OPT_U32, 5) // maximum number of image syncs in parallel
 
 OPTION(nss_db_path, OPT_STR, "") // path to nss db
 
@@ -1245,6 +1232,14 @@ OPTION(rgw_override_bucket_index_max_shards, OPT_U32, 0)
  * Represents the maximum AIO pending requests for the bucket index object shards.
  */
 OPTION(rgw_bucket_index_max_aio, OPT_U32, 8)
+
+/*engage1
+ *  *
+ *   *Data-Cache SSD Cache size. It should be in bytes
+ *    * */
+//OPTION(rgw_data_cache_size, OPT_LONGLONG, 0x10000000000 )
+////OPTION(rgw_data_cache_size, OPT_LONGLONG, 0x140000000 )
+OPTION(rgw_data_cache_size, OPT_LONGLONG, 0x7D00000000 )
 
 /**
  * whether or not the quota/gc threads should be started
@@ -1300,8 +1295,6 @@ OPTION(rgw_ldap_dnattr, OPT_STR, "uid")
 OPTION(rgw_ldap_secret, OPT_STR, "/etc/openldap/secret")
 /* rgw_s3_auth_use_ldap  use LDAP for RGW auth? */
 OPTION(rgw_s3_auth_use_ldap, OPT_BOOL, false)
-/* rgw_ldap_searchfilter  LDAP search filter */
-OPTION(rgw_ldap_searchfilter, OPT_STR, "")
 
 OPTION(rgw_admin_entry, OPT_STR, "admin")  // entry point for which a url is considered an admin request
 OPTION(rgw_enforce_swift_acls, OPT_BOOL, true)
@@ -1327,9 +1320,6 @@ OPTION(rgw_nfs_lru_lanes, OPT_INT, 5)
 OPTION(rgw_nfs_lru_lane_hiwat, OPT_INT, 911)
 OPTION(rgw_nfs_fhcache_partitions, OPT_INT, 3)
 OPTION(rgw_nfs_fhcache_size, OPT_INT, 2017) /* 3*2017=6051 */
-OPTION(rgw_nfs_write_completion_interval_s, OPT_INT, 10) /* stateless (V3)
-							  * commit
-							  * delay */
 
 OPTION(rgw_zone, OPT_STR, "") // zone name
 OPTION(rgw_zone_root_pool, OPT_STR, ".rgw.root")    // pool where zone specific info is stored
@@ -1354,7 +1344,6 @@ OPTION(rgw_enable_usage_log, OPT_BOOL, false) // enable logging bandwidth usage
 OPTION(rgw_ops_log_rados, OPT_BOOL, true) // whether ops log should go to rados
 OPTION(rgw_ops_log_socket_path, OPT_STR, "") // path to unix domain socket where ops log can go
 OPTION(rgw_ops_log_data_backlog, OPT_INT, 5 << 20) // max data backlog for ops log
-OPTION(rgw_fcgi_socket_backlog, OPT_INT, 1024) // socket  backlog for fcgi
 OPTION(rgw_usage_log_flush_threshold, OPT_INT, 1024) // threshold to flush pending log data
 OPTION(rgw_usage_log_tick_interval, OPT_INT, 30) // flush pending log data every X seconds
 OPTION(rgw_intent_log_object_name, OPT_STR, "%Y-%m-%d-%i-%n")  // man date to see codes (a subset are supported)
@@ -1413,7 +1402,7 @@ OPTION(rgw_multipart_part_upload_limit, OPT_INT, 10000) // parts limit in multip
 OPTION(rgw_max_slo_entries, OPT_INT, 1000) // default number of max entries in slo
 
 OPTION(rgw_olh_pending_timeout_sec, OPT_INT, 3600) // time until we retire a pending olh change
-OPTION(rgw_user_max_buckets, OPT_INT, 1000) // global option to set max buckets count for all user
+OPTION(rgw_user_max_buckets, OPT_U32, 1000) // global option to set max buckets count for all user
 
 OPTION(rgw_objexp_gc_interval, OPT_U32, 60 * 10) // maximum time between round of expired objects garbage collecting
 OPTION(rgw_objexp_time_step, OPT_U32, 4096) // number of seconds for rounding the timestamps

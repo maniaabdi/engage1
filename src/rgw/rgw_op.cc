@@ -263,8 +263,7 @@ static int read_policy(RGWRados *store, struct req_state *s,
     obj.init_ns(bucket, oid, mp_ns);
     obj.set_in_extra_data(true);
   } else {
-    obj = rgw_obj(bucket, object.name);
-    obj.set_instance(object.instance);
+    obj = rgw_obj(bucket, object);
   }
   int ret = get_policy_from_attr(s->cct, store, s->obj_ctx, bucket_info, bucket_attrs, policy, obj);
   if (ret == -ENOENT && !object.empty()) {
@@ -411,7 +410,6 @@ int rgw_build_object_policies(RGWRados *store, struct req_state *s,
     s->object_acl = new RGWAccessControlPolicy(s->cct);
 
     rgw_obj obj(s->bucket, s->object);
-      
     store->set_atomic(s->obj_ctx, obj);
     if (prefetch_data) {
       store->set_prefetch_data(s->obj_ctx, obj);
@@ -432,8 +430,7 @@ static void rgw_bucket_object_pre_exec(struct req_state *s)
 
 int RGWGetObj::verify_permission()
 {
-  obj = rgw_obj(s->bucket, s->object.name);
-  obj.set_instance(s->object.instance);
+  obj = rgw_obj(s->bucket, s->object);
   store->set_atomic(s->obj_ctx, obj);
   if (get_data)
     store->set_prefetch_data(s->obj_ctx, obj);
@@ -640,18 +637,6 @@ bool RGWOp::generate_cors_headers(string& origin, string& method, string& header
   if (!rule)
     return false;
 
-  /*
-   * Set the Allowed-Origin header to a asterisk if this is allowed in the rule
-   * and no Authorization was send by the client
-   *
-   * The origin parameter specifies a URI that may access the resource.  The browser must enforce this.
-   * For requests without credentials, the server may specify "*" as a wildcard,
-   * thereby allowing any origin to access the resource.
-   */
-  const char *authorization = s->info.env->get("HTTP_AUTHORIZATION");
-  if (!authorization && rule->has_wildcard_origin())
-    origin = "*";
-
   /* CORS 6.2.3. */
   const char *req_meth = s->info.env->get("HTTP_ACCESS_CONTROL_REQUEST_METHOD");
   if (!req_meth) {
@@ -726,10 +711,6 @@ int RGWGetObj::read_user_manifest_part(rgw_bucket& bucket,
     return -EPERM;
   }
 
-  if (ent.size == 0) {
-    return 0;
-  }
-
   perfcounter->inc(l_rgw_get_b, cur_end - cur_ofs);
   while (cur_ofs <= cur_end) {
     bufferlist bl;
@@ -739,12 +720,6 @@ int RGWGetObj::read_user_manifest_part(rgw_bucket& bucket,
 
     off_t len = bl.length();
     cur_ofs += len;
-    if (!len) {
-        ldout(s->cct, 0) << "ERROR: read 0 bytes; ofs=" << cur_ofs
-	    << " end=" << cur_end << " from obj=" << ent.key.name
-	    << "[" << ent.key.instance << "]" << dendl;
-        return -EIO;
-    }
     op_ret = 0; /* XXX redundant? */
     perfcounter->tinc(l_rgw_get_lat,
                       (ceph_clock_now(s->cct) - start_time));
@@ -1014,11 +989,6 @@ int RGWGetObj::handle_user_manifest(const char *prefix)
     return r;
   }
 
-  if (!total_len) {
-    bufferlist bl;
-    send_response_data(bl, 0, 0);
-  }
-
   return 0;
 }
 
@@ -1045,26 +1015,13 @@ int RGWGetObj::handle_slo_manifest(bufferlist& bl)
 
   for (const auto& entry : slo_info.entries) {
     const string& path = entry.path;
-
-    /* If the path starts with slashes, strip them all. */
-    const size_t pos_init = path.find_first_not_of('/');
-    /* According to the documentation of std::string::find following check
-     * is not necessary as we should get the std::string::npos propagation
-     * here. This might be true with the accuracy to implementation's bugs.
-     * See following question on SO:
-     * http://stackoverflow.com/questions/1011790/why-does-stdstring-findtext-stdstringnpos-not-return-npos
-     */
-    if (pos_init == string::npos) {
+    const size_t pos = path.find('/', 1); /* skip first / */
+    if (pos == string::npos) {
       return -EINVAL;
     }
 
-    const size_t pos_sep = path.find('/', pos_init);
-    if (pos_sep == string::npos) {
-      return -EINVAL;
-    }
-
-    string bucket_name = path.substr(pos_init, pos_sep - pos_init);
-    string obj_name = path.substr(pos_sep + 1);
+    string bucket_name = path.substr(1, pos - 1);
+    string obj_name = path.substr(pos + 1);
 
     rgw_bucket bucket;
     RGWAccessControlPolicy *bucket_policy;
@@ -1570,17 +1527,20 @@ void RGWSetBucketVersioning::pre_exec()
 
 void RGWSetBucketVersioning::execute()
 {
-  op_ret = get_params();
-  if (op_ret < 0)
-    return;
-
   if (!store->is_meta_master()) {
-    op_ret = forward_request_to_master(s, NULL, store, in_data, nullptr);
+    bufferlist in_data;
+    JSONParser jp;
+    op_ret = forward_request_to_master(s, NULL, store, in_data, &jp);
     if (op_ret < 0) {
       ldout(s->cct, 20) << __func__ << "forward_request_to_master returned ret=" << op_ret << dendl;
     }
     return;
   }
+  
+  op_ret = get_params();
+
+  if (op_ret < 0)
+    return;
 
   if (enable_versioning) {
     s->bucket_info.flags |= BUCKET_VERSIONED;
@@ -1809,9 +1769,6 @@ int RGWCreateBucket::verify_permission()
       << s->user->user_id.tenant << " requested=" << s->bucket_tenant << ")"
       << dendl;
     return -EACCES;
-  }
-  if (s->user->max_buckets < 0) {
-    return -EPERM;
   }
 
   if (s->user->max_buckets) {
@@ -2043,17 +2000,10 @@ void RGWCreateBucket::execute()
 
   s->bucket.tenant = s->bucket_tenant; /* ignored if bucket exists */
   s->bucket.name = s->bucket_name;
-
-  /* Handle updates of the metadata for Swift's object versioning. */
-  if (swift_ver_location) {
-    s->bucket_info.swift_ver_location = *swift_ver_location;
-    s->bucket_info.swift_versioning = (! swift_ver_location->empty());
-  }
-
   op_ret = store->create_bucket(*(s->user), s->bucket, zonegroup_id,
-                                placement_rule, s->bucket_info.swift_ver_location,
-                                attrs, info, pobjv, &ep_objv, creation_time,
-                                pmaster_bucket, true);
+				placement_rule, swift_ver_location, attrs,
+				info, pobjv, &ep_objv, creation_time,
+				pmaster_bucket, true);
   /* continue if EEXIST and create_bucket will fail below.  this way we can
    * recover from a partial create by retrying it. */
   ldout(s->cct, 20) << "rgw_create_bucket returned ret=" << op_ret << " bucket=" << s->bucket << dendl;
@@ -2120,12 +2070,6 @@ void RGWCreateBucket::execute()
       rgw_get_request_metadata(s->cct, s->info, attrs, false);
       prepare_add_del_attrs(s->bucket_attrs, rmattr_names, attrs);
       populate_with_generic_attrs(s, attrs);
-
-      /* Handle updates of the metadata for Swift's object versioning. */
-      if (swift_ver_location) {
-        s->bucket_info.swift_ver_location = *swift_ver_location;
-        s->bucket_info.swift_versioning = (! swift_ver_location->empty());
-      }
 
       op_ret = rgw_bucket_set_attrs(store, s->bucket_info, attrs,
                                     &s->bucket_info.objv_tracker);
@@ -2470,18 +2414,6 @@ void RGWPutObj::execute()
 
   processor = select_processor(*static_cast<RGWObjectCtx *>(s->obj_ctx), &multipart);
 
-  /* Handle object versioning of Swift API. */
-  if (! multipart) {
-    rgw_obj obj(s->bucket, s->object);
-    op_ret = store->swift_versioning_copy(*static_cast<RGWObjectCtx *>(s->obj_ctx),
-                                          s->bucket_owner.get_id(),
-                                          s->bucket_info,
-                                          obj);
-    if (op_ret < 0) {
-      return;
-    }
-  }
-
   op_ret = processor->prepare(store, NULL);
   if (op_ret < 0) {
     ldout(s->cct, 20) << "processor->prepare() returned ret=" << op_ret
@@ -2490,21 +2422,14 @@ void RGWPutObj::execute()
   }
 
   do {
-    bufferlist data_in;
-    len = get_data(data_in);
+    bufferlist data;
+    len = get_data(data);
     if (len < 0) {
       op_ret = len;
       goto done;
     }
     if (!len)
       break;
-
-    bufferlist &data = data_in;
-    if (s->aws4_auth_streaming_mode) {
-      /* use unwrapped data */
-      data = s->aws4_auth->bl;
-      len = data.length();
-    }
 
     /* do we need this operation to be synchronous? if we're dealing with an object with immutable
      * head, e.g., multipart object we need to make sure we're the first one writing to this object
@@ -2557,9 +2482,7 @@ void RGWPutObj::execute()
     ofs += len;
   } while (len > 0);
 
-  if (!chunked_upload &&
-      ofs != s->content_length &&
-      !s->aws4_auth_streaming_mode) {
+  if (!chunked_upload && ofs != s->content_length) {
     op_ret = -ERR_REQUEST_TIMEOUT;
     goto done;
   }
@@ -2605,7 +2528,6 @@ void RGWPutObj::execute()
   hash.Final(m);
 
   buf_to_hex(m, CEPH_CRYPTO_MD5_DIGESTSIZE, calc_md5);
-
   etag = calc_md5;
 
   if (supplied_md5_b64 && strcmp(calc_md5, supplied_md5)) {
@@ -2961,10 +2883,8 @@ void RGWPutMetadataBucket::execute()
   prepare_add_del_attrs(s->bucket_attrs, rmattr_names, attrs);
   populate_with_generic_attrs(s, attrs);
 
-  if (swift_ver_location) {
-    s->bucket_info.swift_ver_location = *swift_ver_location;
-    s->bucket_info.swift_versioning = (! swift_ver_location->empty());
-  }
+  s->bucket_info.swift_ver_location = swift_ver_location;
+  s->bucket_info.swift_versioning = (!swift_ver_location.empty());
 
   op_ret = rgw_bucket_set_attrs(store, s->bucket_info, attrs,
 				&s->bucket_info.objv_tracker);
@@ -3136,46 +3056,35 @@ void RGWDeleteObj::execute()
     }
 
     RGWObjectCtx *obj_ctx = static_cast<RGWObjectCtx *>(s->obj_ctx);
+
     obj_ctx->set_atomic(obj);
 
-    bool ver_restored = false;
-    op_ret = store->swift_versioning_restore(*obj_ctx, s->bucket_owner.get_id(),
-                                             s->bucket_info, obj, ver_restored);
+    RGWRados::Object del_target(store, s->bucket_info, *obj_ctx, obj);
+    RGWRados::Object::Delete del_op(&del_target);
+
+    op_ret = get_system_versioning_params(s, &del_op.params.olh_epoch,
+					  &del_op.params.marker_version_id);
     if (op_ret < 0) {
       return;
     }
 
-    if (!ver_restored) {
-      /* Swift's versioning mechanism hasn't found any previous version of
-       * the object that could be restored. This means we should proceed
-       * with the regular delete path. */
-      RGWRados::Object del_target(store, s->bucket_info, *obj_ctx, obj);
-      RGWRados::Object::Delete del_op(&del_target);
+    del_op.params.bucket_owner = s->bucket_owner.get_id();
+    del_op.params.versioning_status = s->bucket_info.versioning_status();
+    del_op.params.obj_owner = s->owner;
+    del_op.params.unmod_since = unmod_since;
+    del_op.params.high_precision_time = s->system_request; /* system request uses high precision time */
 
-      op_ret = get_system_versioning_params(s, &del_op.params.olh_epoch,
-                                            &del_op.params.marker_version_id);
-      if (op_ret < 0) {
-        return;
-      }
+    op_ret = del_op.delete_obj();
+    if (op_ret >= 0) {
+      delete_marker = del_op.result.delete_marker;
+      version_id = del_op.result.version_id;
+    }
 
-      del_op.params.bucket_owner = s->bucket_owner.get_id();
-      del_op.params.versioning_status = s->bucket_info.versioning_status();
-      del_op.params.obj_owner = s->owner;
-      del_op.params.unmod_since = unmod_since;
-      del_op.params.high_precision_time = s->system_request; /* system request uses high precision time */
-
-      op_ret = del_op.delete_obj();
-      if (op_ret >= 0) {
-        delete_marker = del_op.result.delete_marker;
-        version_id = del_op.result.version_id;
-      }
-
-      /* Check whether the object has expired. Swift API documentation
-       * stands that we should return 404 Not Found in such case. */
-      if (need_object_expiration() && object_is_expired(attrs)) {
-        op_ret = -ENOENT;
-        return;
-      }
+    /* Check whether the object has expired. Swift API documentation
+     * stands that we should return 404 Not Found in such case. */
+    if (need_object_expiration() && object_is_expired(attrs)) {
+      op_ret = -ENOENT;
+      return;
     }
 
     if (op_ret == -ERR_PRECONDITION_FAILED && no_precondition_error) {
@@ -3397,16 +3306,6 @@ void RGWCopyObj::execute()
 
   bool high_precision_time = (s->system_request);
 
-  /* Handle object versioning of Swift API. In case of copying to remote this
-   * should fail gently (op_ret == 0) as the dst_obj will not exist here. */
-  op_ret = store->swift_versioning_copy(obj_ctx,
-                                        dest_bucket_info.owner,
-                                        dest_bucket_info,
-                                        dst_obj);
-  if (op_ret < 0) {
-    return;
-  }
-
   op_ret = store->copy_obj(obj_ctx,
 			   s->user->user_id,
 			   client_id,
@@ -3464,6 +3363,8 @@ void RGWGetACLs::execute()
   s3policy->to_xml(ss);
   acls = ss.str();
 }
+
+
 
 int RGWPutACLs::verify_permission()
 {
@@ -3556,8 +3457,7 @@ void RGWPutACLs::execute()
   }
 
   new_policy.encode(bl);
-  obj = rgw_obj(s->bucket, s->object.name);
-  obj.set_instance(s->object.instance);
+  obj = rgw_obj(s->bucket, s->object);
   map<string, bufferlist> attrs;
 
   store->set_atomic(s->obj_ctx, obj);
@@ -3573,9 +3473,6 @@ void RGWPutACLs::execute()
     attrs = s->bucket_attrs;
     attrs[RGW_ATTR_ACL] = bl;
     op_ret = rgw_bucket_set_attrs(store, s->bucket_info, attrs, &s->bucket_info.objv_tracker);
-  }
-  if (op_ret == -ECANCELED) {
-    op_ret = 0; /* lost a race, but it's ok because acls are immutable */
   }
 }
 
@@ -4675,46 +4572,6 @@ void RGWBulkDelete::execute()
   } while (!op_ret && is_truncated);
 
   return;
-}
-
-int RGWSetAttrs::verify_permission()
-{
-  bool perm;
-  if (!s->object.empty()) {
-    perm = verify_object_permission(s, RGW_PERM_WRITE);
-  } else {
-    perm = verify_bucket_permission(s, RGW_PERM_WRITE);
-  }
-  if (!perm)
-    return -EACCES;
-
-  return 0;
-}
-
-void RGWSetAttrs::pre_exec()
-{
-  rgw_bucket_object_pre_exec(s);
-}
-
-void RGWSetAttrs::execute()
-{
-  op_ret = get_params();
-  if (op_ret < 0)
-    return;
-
-  rgw_obj obj(s->bucket, s->object);
-
-  store->set_atomic(s->obj_ctx, obj);
-
-  if (!s->object.empty()) {
-    op_ret = store->set_attrs(s->obj_ctx, obj, attrs, nullptr);
-  } else {
-    for (auto& iter : attrs) {
-      s->bucket_attrs[iter.first] = std::move(iter.second);
-    }
-    op_ret = rgw_bucket_set_attrs(store, s->bucket_info, s->bucket_attrs,
-				  &s->bucket_info.objv_tracker);
-  }
 }
 
 RGWHandler::~RGWHandler()

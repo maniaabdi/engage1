@@ -79,13 +79,10 @@ private:
    *    |           STATE_UPDATE_HEADER ----------------------------\
    *    |                                                           |
    *    | (shrink)                                                  |
-   *    |\--------> STATE_FLUSH_CACHE                               |
+   *    |\--------> STATE_TRIM_IMAGE                                |
    *    |                 |                                         |
    *    |                 v                                         |
    *    |           STATE_INVALIDATE_CACHE                          |
-   *    |                 |                                         |
-   *    |                 v                                         |
-   *    |           STATE_TRIM_IMAGE                                |
    *    |                 |                                         |
    *    |                 v                                         |
    *    |           STATE_POST_BLOCK_WRITES                         |
@@ -121,9 +118,6 @@ private:
 
   Context *send_append_op_event();
   Context *handle_append_op_event(int *result);
-
-  void send_flush_cache();
-  Context *handle_flush_cache(int *result);
 
   void send_invalidate_cache();
   Context *handle_invalidate_cache(int *result);

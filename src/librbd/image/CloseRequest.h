@@ -4,6 +4,7 @@
 #ifndef CEPH_LIBRBD_IMAGE_CLOSE_REQUEST_H
 #define CEPH_LIBRBD_IMAGE_CLOSE_REQUEST_H
 
+#include "include/int_types.h"
 #include "librbd/ImageCtx.h"
 
 class Context;
@@ -28,9 +29,6 @@ private:
    * @verbatim
    *
    * <start>
-   *    |
-   *    v
-   * SHUT_DOWN_UPDATE_WATCHERS
    *    |
    *    v
    * UNREGISTER_IMAGE_WATCHER
@@ -73,9 +71,6 @@ private:
   int m_error_result;
 
   decltype(m_image_ctx->exclusive_lock) m_exclusive_lock;
-
-  void send_shut_down_update_watchers();
-  void handle_shut_down_update_watchers(int r);
 
   void send_unregister_image_watcher();
   void handle_unregister_image_watcher(int r);

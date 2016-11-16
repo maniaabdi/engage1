@@ -78,7 +78,9 @@ boost::pool<> CDir::pool(sizeof(CDir));
 
 ostream& operator<<(ostream& out, const CDir& dir)
 {
-  out << "[dir " << dir.dirfrag() << " " << dir.get_path() << "/"
+  string path;
+  dir.get_inode()->make_path_string_projected(path);
+  out << "[dir " << dir.dirfrag() << " " << path << "/"
       << " [" << dir.first << ",head]";
   if (dir.is_auth()) {
     out << " auth";
@@ -1751,9 +1753,7 @@ void CDir::_omap_fetched(bufferlist& hdrbl, map<string, bufferlist>& omap,
     }
 
     dout(0) << "_fetched missing object for " << *this << dendl;
-
-    clog->error() << "dir " << dirfrag() << " object missing on disk; some "
-                     "files may be lost (" << get_path() << ")";
+    clog->error() << "dir " << dirfrag() << " object missing on disk; some files may be lost\n";
 
     go_bad();
     return;
@@ -1768,14 +1768,13 @@ void CDir::_omap_fetched(bufferlist& hdrbl, map<string, bufferlist>& omap,
       derr << "Corrupt fnode in dirfrag " << dirfrag()
         << ": " << err << dendl;
       clog->warn() << "Corrupt fnode header in " << dirfrag() << ": "
-		  << err << " (" << get_path() << ")";
+		  << err;
       go_bad();
       return;
     }
     if (!p.end()) {
       clog->warn() << "header buffer of dir " << dirfrag() << " has "
-		  << hdrbl.length() - p.get_off() << " extra bytes ("
-                  << get_path() << ")";
+		  << hdrbl.length() - p.get_off() << " extra bytes\n";
       go_bad();
       return;
     }
@@ -1834,7 +1833,7 @@ void CDir::_omap_fetched(bufferlist& hdrbl, map<string, bufferlist>& omap,
     } catch (const buffer::error &err) {
       cache->mds->clog->warn() << "Corrupt dentry '" << dname << "' in "
                                   "dir frag " << dirfrag() << ": "
-                               << err << "(" << get_path() << ")";
+                               << err;
 
       // Remember that this dentry is damaged.  Subsequent operations
       // that try to act directly on it will get their EIOs, but this
@@ -2888,7 +2887,9 @@ void CDir::dump(Formatter *f) const
 {
   assert(f != NULL);
 
-  f->dump_stream("path") << get_path();
+  string path;
+  get_inode()->make_path_string_projected(path);
+  f->dump_stream("path") << path;
 
   f->dump_stream("dirfrag") << dirfrag();
   f->dump_int("snapid_first", first);
@@ -3151,11 +3152,3 @@ bool CDir::scrub_local()
   }
   return rval;
 }
-
-std::string CDir::get_path() const
-{
-  std::string path;
-  get_inode()->make_path_string_projected(path);
-  return path;
-}
-

@@ -168,7 +168,6 @@ void req_info::rebuild_from(req_info& src)
 {
   method = src.method;
   script_uri = src.script_uri;
-  args = src.args;
   if (src.effective_uri.empty()) {
     request_uri = src.request_uri;
   } else {
@@ -196,7 +195,6 @@ req_state::req_state(CephContext* _cct, RGWEnv* e, RGWUserInfo* u)
   object_acl = NULL;
   expect_cont = false;
   aws4_auth_needs_complete = false;
-  aws4_auth_streaming_mode = false;
 
   header_ended = false;
   obj_size = 0;
@@ -215,6 +213,8 @@ req_state::req_state(CephContext* _cct, RGWEnv* e, RGWUserInfo* u)
   http_auth = NULL;
   local_source = false;
 
+  aws4_auth = NULL;
+
   obj_ctx = NULL;
 }
 
@@ -222,6 +222,7 @@ req_state::~req_state() {
   delete formatter;
   delete bucket_acl;
   delete object_acl;
+  delete aws4_auth;
 }
 
 struct str_len {
@@ -1346,37 +1347,6 @@ bool RGWUserCaps::is_valid_cap_type(const string& tp)
   }
 
   return false;
-}
-
-std::string rgw_bucket::get_key(char tenant_delim, char id_delim) const
-{
-  static constexpr size_t shard_len{12}; // ":4294967295\0"
-  const size_t max_len = tenant.size() + sizeof(tenant_delim) +
-      name.size() + sizeof(id_delim) + bucket_id.size() + shard_len;
-
-  std::string key;
-  key.reserve(max_len);
-  if (!tenant.empty() && tenant_delim) {
-    key.append(tenant);
-    key.append(1, tenant_delim);
-  }
-  key.append(name);
-  if (!bucket_id.empty() && id_delim) {
-    key.append(1, id_delim);
-    key.append(bucket_id);
-  }
-  return key;
-}
-
-std::string rgw_bucket_shard::get_key(char tenant_delim, char id_delim,
-                                      char shard_delim) const
-{
-  auto key = bucket.get_key(tenant_delim, id_delim);
-  if (shard_id >= 0 && shard_delim) {
-    key.append(1, shard_delim);
-    key.append(std::to_string(shard_id));
-  }
-  return key;
 }
 
 static struct rgw_name_to_flag op_type_mapping[] = { {"*",  RGW_OP_TYPE_ALL},

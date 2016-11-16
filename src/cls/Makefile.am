@@ -5,5 +5,3 @@ endif
 if ENABLE_SERVER
 include cls/Makefile-server.am
 endif
-
-EXTRA_DIST += cls/CMakeLists.txt

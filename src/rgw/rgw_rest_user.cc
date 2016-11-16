@@ -73,8 +73,8 @@ void RGWOp_User_Create::execute()
   bool system;
   bool exclusive;
 
-  int32_t max_buckets;
-  int32_t default_max_buckets = s->cct->_conf->rgw_user_max_buckets;
+  uint32_t max_buckets;
+  uint32_t default_max_buckets = s->cct->_conf->rgw_user_max_buckets;
 
   RGWUserAdminOpState op_state;
 
@@ -89,7 +89,7 @@ void RGWOp_User_Create::execute()
   RESTArgs::get_string(s, "user-caps", caps, &caps);
   RESTArgs::get_bool(s, "generate-key", true, &gen_key);
   RESTArgs::get_bool(s, "suspended", false, &suspended);
-  RESTArgs::get_int32(s, "max-buckets", default_max_buckets, &max_buckets);
+  RESTArgs::get_uint32(s, "max-buckets", default_max_buckets, &max_buckets);
   RESTArgs::get_bool(s, "system", false, &system);
   RESTArgs::get_bool(s, "exclusive", false, &exclusive);
 
@@ -143,37 +143,6 @@ void RGWOp_User_Create::execute()
   if (gen_key)
     op_state.set_generate_key();
 
-  RGWQuotaInfo bucket_quota;
-  RGWQuotaInfo user_quota;
-
-  if (s->cct->_conf->rgw_bucket_default_quota_max_objects >= 0) {
-    bucket_quota.max_objects = s->cct->_conf->rgw_bucket_default_quota_max_objects;
-    bucket_quota.enabled = true;
-  }
-
-  if (s->cct->_conf->rgw_bucket_default_quota_max_size >= 0) {
-    bucket_quota.max_size_kb = s->cct->_conf->rgw_bucket_default_quota_max_size;
-    bucket_quota.enabled = true;
-  }
-
-  if (s->cct->_conf->rgw_user_default_quota_max_objects >= 0) {
-    user_quota.max_objects = s->cct->_conf->rgw_user_default_quota_max_objects;
-    user_quota.enabled = true;
-  }
-
-  if (s->cct->_conf->rgw_user_default_quota_max_size >= 0) {
-    user_quota.max_size_kb = s->cct->_conf->rgw_user_default_quota_max_size;
-    user_quota.enabled = true;
-  }
-
-  if (bucket_quota.enabled) {
-    op_state.set_bucket_quota(bucket_quota);
-  }
-
-  if (user_quota.enabled) {
-    op_state.set_user_quota(user_quota);
-  }
-
   http_ret = RGWUserAdminOp_User::create(store, op_state, flusher);
 }
 
@@ -205,7 +174,7 @@ void RGWOp_User_Modify::execute()
   bool suspended;
   bool system;
 
-  int32_t max_buckets;
+  uint32_t max_buckets;
 
   RGWUserAdminOpState op_state;
 
@@ -219,7 +188,7 @@ void RGWOp_User_Modify::execute()
   RESTArgs::get_string(s, "user-caps", caps, &caps);
   RESTArgs::get_bool(s, "generate-key", false, &gen_key);
   RESTArgs::get_bool(s, "suspended", false, &suspended);
-  RESTArgs::get_int32(s, "max-buckets", RGW_DEFAULT_MAX_BUCKETS, &max_buckets);
+  RESTArgs::get_uint32(s, "max-buckets", RGW_DEFAULT_MAX_BUCKETS, &max_buckets);
   RESTArgs::get_string(s, "key-type", key_type_str, &key_type_str);
 
   RESTArgs::get_bool(s, "system", false, &system);

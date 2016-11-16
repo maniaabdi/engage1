@@ -17,10 +17,7 @@
 
 #include "messages/MClientRequestForward.h"
 #include "messages/MMDSMap.h"
-#include "messages/MCommand.h"
-#include "messages/MCommandReply.h"
 
-#include "MDSDaemon.h"
 #include "MDSMap.h"
 #include "SnapClient.h"
 #include "SnapServer.h"
@@ -225,6 +222,8 @@ void MDSRankDispatcher::shutdown()
   // threads block on IOs that require finisher to complete.
   mdlog->shutdown();
 
+  finisher->stop(); // no flushing
+
   // shut down cache
   mdcache->shutdown();
 
@@ -237,14 +236,8 @@ void MDSRankDispatcher::shutdown()
 
   progress_thread.shutdown();
 
-  // release mds_lock for finisher/messenger threads (e.g.
-  // MDSDaemon::ms_handle_reset called from Messenger).
-  mds_lock.Unlock();
-
-  finisher->stop(); // no flushing
+  // shut down messenger
   messenger->shutdown();
-
-  mds_lock.Lock();
 
   // Workaround unclean shutdown: HeartbeatMap will assert if
   // worker is not removed (as we do in ~MDS), but ~MDS is not
@@ -1240,7 +1233,9 @@ void MDSRank::clientreplay_start()
 bool MDSRank::queue_one_replay()
 {
   if (replay_queue.empty()) {
-    clientreplay_done();
+    if (mdcache->get_num_client_requests() == 0) {
+      clientreplay_done();
+    }
     return false;
   }
   queue_waiter(replay_queue.front());
@@ -1781,32 +1776,15 @@ bool MDSRankDispatcher::handle_asok_command(
   return true;
 }
 
-class C_MDS_Send_Command_Reply : public MDSInternalContext
-{
-protected:
-  MCommand *m;
-public:
-  C_MDS_Send_Command_Reply(MDSRank *_mds, MCommand *_m) :
-    MDSInternalContext(_mds), m(_m) { m->get(); }
-  void send (int r) {
-    bufferlist bl;
-    MDSDaemon::send_command_reply(m, mds, r, bl, "");
-    m->put();
-  }
-  void finish (int r) {
-    send(r);
-  }
-};
-
 /**
  * This function drops the mds_lock, so don't do anything with
  * MDSRank after calling it (we could have gone into shutdown): just
  * send your result back to the calling client and finish.
  */
-void MDSRankDispatcher::evict_sessions(const SessionFilter &filter, MCommand *m)
+std::vector<entity_name_t> MDSRankDispatcher::evict_sessions(
+    const SessionFilter &filter)
 {
   std::list<Session*> victims;
-  C_MDS_Send_Command_Reply *reply = new C_MDS_Send_Command_Reply(this, m);
 
   const auto sessions = sessionmap.get_sessions();
   for (const auto p : sessions)  {
@@ -1823,17 +1801,24 @@ void MDSRankDispatcher::evict_sessions(const SessionFilter &filter, MCommand *m)
 
   dout(20) << __func__ << " matched " << victims.size() << " sessions" << dendl;
 
+  std::vector<entity_name_t> result;
+
   if (victims.empty()) {
-    reply->send(0);
-    delete reply;
-    return;
+    return result;
   }
 
-  C_GatherBuilder gather(g_ceph_context, reply);
+  C_SaferCond on_safe;
+  C_GatherBuilder gather(g_ceph_context, &on_safe);
   for (const auto s : victims) {
     server->kill_session(s, gather.new_sub());
+    result.push_back(s->info.inst.name);
   }
   gather.activate();
+  mds_lock.Unlock();
+  on_safe.wait();
+  mds_lock.Lock();
+
+  return result;
 }
 
 void MDSRankDispatcher::dump_sessions(const SessionFilter &filter, Formatter *f) const
@@ -2550,17 +2535,14 @@ MDSRankDispatcher::MDSRankDispatcher(
 
 bool MDSRankDispatcher::handle_command(
   const cmdmap_t &cmdmap,
-  MCommand *m,
+  bufferlist const &inbl,
   int *r,
   std::stringstream *ds,
-  std::stringstream *ss,
-  bool *need_reply)
+  std::stringstream *ss)
 {
   assert(r != nullptr);
   assert(ds != nullptr);
   assert(ss != nullptr);
-
-  *need_reply = true;
 
   std::string prefix;
   cmd_getval(g_ceph_context, cmdmap, "prefix", prefix);
@@ -2590,9 +2572,8 @@ bool MDSRankDispatcher::handle_command(
       return true;
     }
 
-    evict_sessions(filter, m);
+    evict_sessions(filter);
 
-    *need_reply = false;
     return true;
   } else if (prefix == "damage ls") {
     Formatter *f = new JSONFormatter();

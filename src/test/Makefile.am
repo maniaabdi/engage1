@@ -1,40 +1,3 @@
-EXTRA_DIST += \
-	test/CMakeLists.txt \
-	test/ObjectMap/CMakeLists.txt \
-	test/bench/CMakeLists.txt \
-	test/cls_hello/CMakeLists.txt \
-	test/cls_lock/CMakeLists.txt \
-	test/cls_log/CMakeLists.txt \
-	test/cls_numops/CMakeLists.txt \
-	test/cls_rbd/CMakeLists.txt \
-	test/cls_refcount/CMakeLists.txt \
-	test/cls_replica_log/CMakeLists.txt \
-	test/cls_rgw/CMakeLists.txt \
-	test/cls_statelog/CMakeLists.txt \
-	test/cls_version/CMakeLists.txt \
-	test/common/CMakeLists.txt \
-	test/crush/CMakeLists.txt \
-	test/encoding/CMakeLists.txt \
-	test/filestore/CMakeLists.txt \
-	test/fs/CMakeLists.txt \
-	test/journal/CMakeLists.txt \
-	test/libcephfs/CMakeLists.txt \
-	test/librados/CMakeLists.txt \
-	test/librados_test_stub/CMakeLists.txt \
-	test/libradosstriper/CMakeLists.txt \
-	test/librbd/CMakeLists.txt \
-	test/mds/CMakeLists.txt \
-	test/mon/CMakeLists.txt \
-	test/msgr/CMakeLists.txt \
-	test/objectstore/CMakeLists.txt \
-	test/os/CMakeLists.txt \
-	test/osd/CMakeLists.txt \
-	test/osdc/CMakeLists.txt \
-	test/pybind/CMakeLists.txt \
-	test/rbd_mirror/CMakeLists.txt \
-	test/rgw/CMakeLists.txt \
-	test/system/CMakeLists.txt
-
 include test/erasure-code/Makefile.am
 include test/messenger/Makefile.am
 include test/compressor/Makefile.am
@@ -130,8 +93,7 @@ check_SCRIPTS += \
 	test/mon/mon-handle-forward.sh \
 	test/libradosstriper/rados-striper.sh \
 	test/test_objectstore_memstore.sh \
-        test/test_pidfile.sh \
-	test/test_subman.sh
+        test/test_pidfile.sh
 
 EXTRA_DIST += \
 	$(srcdir)/test/python/brag-client/setup.py \
@@ -490,8 +452,7 @@ check_SCRIPTS += test/pybind/test_ceph_daemon.py
 
 ceph_test_objectcacher_stress_SOURCES = \
 	test/osdc/object_cacher_stress.cc \
-	test/osdc/FakeWriteback.cc \
-	test/osdc/MemWriteback.cc
+	test/osdc/FakeWriteback.cc
 ceph_test_objectcacher_stress_LDADD = $(LIBOSDC) $(CEPH_GLOBAL)
 bin_DEBUGPROGRAMS += ceph_test_objectcacher_stress
 
@@ -528,7 +489,6 @@ noinst_HEADERS += \
 	test/ObjectMap/KeyValueDBMemory.h \
 	test/omap_bench.h \
 	test/osdc/FakeWriteback.h \
-	test/osdc/MemWriteback.h \
 	test/osd/Object.h \
 	test/osd/RadosModel.h \
 	test/osd/TestOpStat.h \

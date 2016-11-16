@@ -833,6 +833,7 @@ void ObjectCacher::bh_read_finish(int64_t poolid, sobject_t oid,
       if (bh->error < 0)
 	err = bh->error;
 
+      loff_t oldpos = opos;
       opos = bh->end();
 
       if (r == -ENOENT) {
@@ -852,7 +853,7 @@ void ObjectCacher::bh_read_finish(int64_t poolid, sobject_t oid,
 	mark_error(bh);
       } else {
 	bh->bl.substr_of(bl,
-			 bh->start() - start,
+			 oldpos-bh->start(),
 			 bh->length());
 	mark_clean(bh);
       }
@@ -888,7 +889,7 @@ void ObjectCacher::bh_write_adjacencies(BufferHead *bh, ceph::real_time cutoff,
     BufferHead *obh = *p;
     if (obh->ob != bh->ob)
       break;
-    if (obh->is_dirty() && obh->last_write <= cutoff) {
+    if (obh->is_dirty() && obh->last_write < cutoff) {
       blist.push_back(obh);
       ++count;
       total_len += obh->length();
@@ -903,7 +904,7 @@ void ObjectCacher::bh_write_adjacencies(BufferHead *bh, ceph::real_time cutoff,
     BufferHead *obh = *it;
     if (obh->ob != bh->ob)
       break;
-    if (obh->is_dirty() && obh->last_write <= cutoff) {
+    if (obh->is_dirty() && obh->last_write < cutoff) {
       blist.push_front(obh);
       ++count;
       total_len += obh->length();
@@ -1746,7 +1747,7 @@ void ObjectCacher::flusher_entry()
       int max = MAX_FLUSH_UNDER_LOCK;
       while ((bh = static_cast<BufferHead*>(bh_lru_dirty.
 					    lru_get_next_expire())) != 0 &&
-	     bh->last_write <= cutoff &&
+	     bh->last_write < cutoff &&
 	     max > 0) {
 	ldout(cct, 10) << "flusher flushing aged dirty bh " << *bh << dendl;
 	if (scattered_write) {

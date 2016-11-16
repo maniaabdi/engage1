@@ -7,13 +7,16 @@
 #include "common/Mutex.h"
 #include "common/RWLock.h"
 #include "include/Context.h"
+#include "include/rados/librados.hpp"
 #include "include/rbd/librbd.hpp"
 #include "librbd/image_watcher/Notifier.h"
 #include "librbd/WatchNotifyTypes.h"
 #include <set>
 #include <string>
 #include <utility>
-#include <boost/variant.hpp>
+#include <vector>
+#include <boost/function.hpp>
+#include "include/assert.h"
 
 class entity_name_t;
 
@@ -22,10 +25,9 @@ namespace librbd {
 class ImageCtx;
 template <typename T> class TaskFinisher;
 
-template <typename ImageCtxT = ImageCtx>
 class ImageWatcher {
 public:
-  ImageWatcher(ImageCtxT& image_ctx);
+  ImageWatcher(ImageCtx& image_ctx);
   ~ImageWatcher();
 
   void register_watch(Context *on_finish);
@@ -52,8 +54,6 @@ public:
   void notify_request_lock();
 
   void notify_header_update(Context *on_finish);
-  static void notify_header_update(librados::IoCtx &io_ctx,
-                                   const std::string &oid);
 
   uint64_t get_watch_handle() const {
     RWLock::RLocker watch_locker(m_watch_lock);
@@ -220,7 +220,7 @@ private:
     }
   };
 
-  ImageCtxT &m_image_ctx;
+  ImageCtx &m_image_ctx;
 
   mutable RWLock m_watch_lock;
   WatchCtx m_watch_ctx;
@@ -314,7 +314,5 @@ private:
 };
 
 } // namespace librbd
-
-extern template class librbd::ImageWatcher<librbd::ImageCtx>;
 
 #endif // CEPH_LIBRBD_IMAGE_WATCHER_H

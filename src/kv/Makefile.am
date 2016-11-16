@@ -42,5 +42,3 @@ noinst_HEADERS += kv/KineticStore.h
 endif
 
 endif # ENABLE_SERVER
-
-EXTRA_DIST += kv/CMakeLists.txt

@@ -1131,7 +1131,6 @@ class TestExclusiveLock(object):
                 image1.remove_snap('snap')
 
     def test_follower_discard(self):
-        global rados
         with Image(ioctx, image_name) as image1, Image(ioctx2, image_name) as image2:
             data = rand_data(256)
             image1.write(data, 0)
@@ -1139,10 +1138,7 @@ class TestExclusiveLock(object):
             eq(image1.is_exclusive_lock_owner(), False)
             eq(image2.is_exclusive_lock_owner(), True)
             read = image2.read(0, 256)
-            if rados.conf_get('rbd_skip_partial_discard') == 'false':
-                eq(256 * b'\0', read)
-            else:
-                eq(data, read)
+            eq(256 * b'\0', read)
 
     def test_follower_write(self):
         with Image(ioctx, image_name) as image1, Image(ioctx2, image_name) as image2:

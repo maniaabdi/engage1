@@ -3056,25 +3056,6 @@ ostream& operator<<(ostream& out, const osd_peer_stat_t &stat);
 // -----------------------------------------
 
 class ObjectExtent {
-  /**
-   * ObjectExtents are used for specifying IO behavior against RADOS
-   * objects when one is using the ObjectCacher.
-   *
-   * To use this in a real system, *every member* must be filled
-   * out correctly. In particular, make sure to initialize the
-   * oloc correctly, as its default values are deliberate poison
-   * and will cause internal ObjectCacher asserts.
-   *
-   * Similarly, your buffer_extents vector *must* specify a total
-   * size equal to your length. If the buffer_extents inadvertently
-   * contain less space than the length member specifies, you
-   * will get unintelligible asserts deep in the ObjectCacher.
-   *
-   * If you are trying to do testing and don't care about actual
-   * RADOS function, the simplest thing to do is to initialize
-   * the ObjectExtent (truncate_size can be 0), create a single entry
-   * in buffer_extents matching the length, and set oloc.pool to 0.
-   */
  public:
   object_t    oid;       // object id
   uint64_t    objectno;
@@ -4056,38 +4037,15 @@ struct ScrubMap {
   };
   WRITE_CLASS_ENCODER(object)
 
-  bool bitwise; // ephemeral, not encoded
-  map<hobject_t,object, hobject_t::ComparatorWithDefault> objects;
+  map<hobject_t,object, hobject_t::BitwiseComparator> objects;
   eversion_t valid_through;
   eversion_t incr_since;
 
-  ScrubMap() : bitwise(true) {}
-  ScrubMap(bool bitwise)
-    : bitwise(bitwise), objects(hobject_t::ComparatorWithDefault(bitwise)) {}
-
   void merge_incr(const ScrubMap &l);
-  void insert(const ScrubMap &r) {
-    objects.insert(r.objects.begin(), r.objects.end());
-  }
-  void swap(ScrubMap &r) {
-    ::swap(objects, r.objects);
-    ::swap(valid_through, r.valid_through);
-    ::swap(incr_since, r.incr_since);
-  }
 
   void encode(bufferlist& bl) const;
   void decode(bufferlist::iterator& bl, int64_t pool=-1);
   void dump(Formatter *f) const;
-  void reset_bitwise(bool new_bitwise) {
-    if (bitwise == new_bitwise)
-      return;
-    map<hobject_t, object, hobject_t::ComparatorWithDefault> new_objects(
-      objects.begin(),
-      objects.end(),
-      hobject_t::ComparatorWithDefault(new_bitwise));
-    ::swap(new_objects, objects);
-    bitwise = new_bitwise;
-  }
   static void generate_test_instances(list<ScrubMap*>& o);
 };
 WRITE_CLASS_ENCODER(ScrubMap::object)

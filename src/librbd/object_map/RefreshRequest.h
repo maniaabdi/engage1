@@ -6,9 +6,8 @@
 
 #include "include/int_types.h"
 #include "include/buffer.h"
+#include "include/Context.h"
 #include "common/bit_vector.hpp"
-
-class Context;
 
 namespace librbd {
 

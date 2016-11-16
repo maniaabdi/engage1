@@ -7,6 +7,7 @@
 #include "librbd/AioImageRequestWQ.h"
 #include "librbd/ExclusiveLock.h"
 #include "librbd/ImageCtx.h"
+#include "librbd/ImageWatcher.h"
 #include "librbd/ObjectMap.h"
 #include "librbd/Utils.h"
 
@@ -115,7 +116,7 @@ Context *SnapshotCreateRequest<I>::handle_suspend_aio(int *result) {
   if (*result < 0) {
     lderr(cct) << "failed to block writes: " << cpp_strerror(*result) << dendl;
     image_ctx.aio_work_queue->unblock_writes();
-    return this->create_context_finisher(*result);
+    return this->create_context_finisher();
   }
 
   send_append_op_event();
@@ -146,7 +147,7 @@ Context *SnapshotCreateRequest<I>::handle_append_op_event(int *result) {
     image_ctx.aio_work_queue->unblock_writes();
     lderr(cct) << "failed to commit journal entry: " << cpp_strerror(*result)
                << dendl;
-    return this->create_context_finisher(*result);
+    return this->create_context_finisher();
   }
 
   send_allocate_snap_id();
@@ -175,10 +176,10 @@ Context *SnapshotCreateRequest<I>::handle_allocate_snap_id(int *result) {
 
   if (*result < 0) {
     save_result(result);
-    image_ctx.aio_work_queue->unblock_writes();
+    finalize(*result);
     lderr(cct) << "failed to allocate snapshot id: " << cpp_strerror(*result)
                << dendl;
-    return this->create_context_finisher(*result);
+    return this->create_context_finisher();
   }
 
   send_create_snap();
@@ -250,8 +251,8 @@ Context *SnapshotCreateRequest<I>::send_create_object_map() {
   if (image_ctx.object_map == nullptr || m_skip_object_map) {
     image_ctx.snap_lock.put_read();
 
-    image_ctx.aio_work_queue->unblock_writes();
-    return this->create_context_finisher(0);
+    finalize(0);
+    return this->create_context_finisher();
   }
 
   CephContext *cct = image_ctx.cct;
@@ -276,8 +277,8 @@ Context *SnapshotCreateRequest<I>::handle_create_object_map(int *result) {
 
   assert(*result == 0);
 
-  image_ctx.aio_work_queue->unblock_writes();
-  return this->create_context_finisher(0);
+  finalize(0);
+  return this->create_context_finisher();
 }
 
 template <typename I>
@@ -304,8 +305,20 @@ Context *SnapshotCreateRequest<I>::handle_release_snap_id(int *result) {
   assert(m_ret_val < 0);
   *result = m_ret_val;
 
+  finalize(m_ret_val);
+  return this->create_context_finisher();
+}
+
+template <typename I>
+void SnapshotCreateRequest<I>::finalize(int r) {
+  I &image_ctx = this->m_image_ctx;
+  CephContext *cct = image_ctx.cct;
+  ldout(cct, 5) << this << " " << __func__ << ": r=" << r << dendl;
+
+  if (r == 0) {
+    this->commit_op_event(0);
+  }
   image_ctx.aio_work_queue->unblock_writes();
-  return this->create_context_finisher(m_ret_val);
 }
 
 template <typename I>

@@ -4,6 +4,7 @@
 #ifndef CEPH_LIBRBD_IMAGE_WATCHER_NOTIFY_LOCK_OWNER_H
 #define CEPH_LIBRBD_IMAGE_WATCHER_NOTIFY_LOCK_OWNER_H
 
+#include "include/int_types.h"
 #include "include/buffer.h"
 
 class Context;

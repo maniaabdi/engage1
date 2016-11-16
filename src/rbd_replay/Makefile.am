@@ -74,5 +74,3 @@ endif
 endif # WITH_RBD
 endif # WITH_RADOS
 endif # ENABLE_CLIENT
-
-EXTRA_DIST += rbd_replay/CMakeLists.txt

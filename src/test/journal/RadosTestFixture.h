@@ -25,9 +25,7 @@ public:
              uint8_t splay_width = 2);
   journal::JournalMetadataPtr create_metadata(const std::string &oid,
                                               const std::string &client_id = "client",
-                                              double commit_internal = 0.1,
-                                              uint64_t max_fetch_bytes = 0,
-                                              int max_concurrent_object_sets = 0);
+                                              double commit_internal = 0.1);
   int append(const std::string &oid, const bufferlist &bl);
 
   int client_register(const std::string &oid, const std::string &id = "client",
@@ -37,7 +35,7 @@ public:
 
   bufferlist create_payload(const std::string &payload);
 
-  struct Listener : public journal::JournalMetadataListener {
+  struct Listener : public journal::JournalMetadata::Listener {
     RadosTestFixture *test_fixture;
     Mutex mutex;
     Cond cond;

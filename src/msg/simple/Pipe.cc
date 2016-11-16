@@ -891,7 +891,7 @@ int Pipe::connect()
   pipe_lock.Unlock();
   
   char tag = -1;
-  int rc = -1;
+  int rc;
   struct msghdr msg;
   struct iovec msgvec[2];
   int msglen;
@@ -909,8 +909,7 @@ int Pipe::connect()
   // create socket?
   sd = ::socket(peer_addr.get_family(), SOCK_STREAM, 0);
   if (sd < 0) {
-    rc = -errno;
-    lderr(msgr->cct) << "connect couldn't created socket " << cpp_strerror(rc) << dendl;
+    lderr(msgr->cct) << "connect couldn't created socket " << cpp_strerror(errno) << dendl;
     goto fail;
   }
 
@@ -922,17 +921,15 @@ int Pipe::connect()
   ldout(msgr->cct,10) << "connecting to " << peer_addr << dendl;
   rc = ::connect(sd, (sockaddr*)&peer_addr.addr, peer_addr.addr_size());
   if (rc < 0) {
-    rc = -errno;
     ldout(msgr->cct,2) << "connect error " << peer_addr
-	     << ", " << cpp_strerror(rc) << dendl;
+	     << ", " << cpp_strerror(errno) << dendl;
     goto fail;
   }
 
   // verify banner
   // FIXME: this should be non-blocking, or in some other way verify the banner as we get it.
-  rc = tcp_read((char*)&banner, strlen(CEPH_BANNER));
-  if (rc < 0) {
-    ldout(msgr->cct,2) << "connect couldn't read banner, " << cpp_strerror(rc) << dendl;
+  if (tcp_read((char*)&banner, strlen(CEPH_BANNER)) < 0) {
+    ldout(msgr->cct,2) << "connect couldn't read banner, " << cpp_strerror(errno) << dendl;
     goto fail;
   }
   if (memcmp(banner, CEPH_BANNER, strlen(CEPH_BANNER))) {
@@ -946,9 +943,8 @@ int Pipe::connect()
   msg.msg_iov = msgvec;
   msg.msg_iovlen = 1;
   msglen = msgvec[0].iov_len;
-  rc = do_sendmsg(&msg, msglen);
-  if (rc < 0) {
-    ldout(msgr->cct,2) << "connect couldn't write my banner, " << cpp_strerror(rc) << dendl;
+  if (do_sendmsg(&msg, msglen)) {
+    ldout(msgr->cct,2) << "connect couldn't write my banner, " << cpp_strerror(errno) << dendl;
     goto fail;
   }
 
@@ -962,9 +958,8 @@ int Pipe::connect()
 #endif
     addrbl.push_back(std::move(p));
   }
-  rc = tcp_read(addrbl.c_str(), addrbl.length());
-  if (rc < 0) {
-    ldout(msgr->cct,2) << "connect couldn't read peer addrs, " << cpp_strerror(rc) << dendl;
+  if (tcp_read(addrbl.c_str(), addrbl.length()) < 0) {
+    ldout(msgr->cct,2) << "connect couldn't read peer addrs, " << cpp_strerror(errno) << dendl;
     goto fail;
   }
   {
@@ -1000,9 +995,8 @@ int Pipe::connect()
   msg.msg_iov = msgvec;
   msg.msg_iovlen = 1;
   msglen = msgvec[0].iov_len;
-  rc = do_sendmsg(&msg, msglen);
-  if (rc < 0) {
-    ldout(msgr->cct,2) << "connect couldn't write my addr, " << cpp_strerror(rc) << dendl;
+  if (do_sendmsg(&msg, msglen)) {
+    ldout(msgr->cct,2) << "connect couldn't write my addr, " << cpp_strerror(errno) << dendl;
     goto fail;
   }
   ldout(msgr->cct,10) << "connect sent my addr " << msgr->my_inst.addr << dendl;
@@ -1042,17 +1036,15 @@ int Pipe::connect()
 
     ldout(msgr->cct,10) << "connect sending gseq=" << gseq << " cseq=" << cseq
 	     << " proto=" << connect.protocol_version << dendl;
-    rc = do_sendmsg(&msg, msglen);
-    if (rc < 0) {
-      ldout(msgr->cct,2) << "connect couldn't write gseq, cseq, " << cpp_strerror(rc) << dendl;
+    if (do_sendmsg(&msg, msglen)) {
+      ldout(msgr->cct,2) << "connect couldn't write gseq, cseq, " << cpp_strerror(errno) << dendl;
       goto fail;
     }
 
     ldout(msgr->cct,20) << "connect wrote (self +) cseq, waiting for reply" << dendl;
     ceph_msg_connect_reply reply;
-    rc = tcp_read((char*)&reply, sizeof(reply));
-    if (rc < 0) {
-      ldout(msgr->cct,2) << "connect read reply " << cpp_strerror(rc) << dendl;
+    if (tcp_read((char*)&reply, sizeof(reply)) < 0) {
+      ldout(msgr->cct,2) << "connect read reply " << cpp_strerror(errno) << dendl;
       goto fail;
     }
 
@@ -1072,9 +1064,8 @@ int Pipe::connect()
     if (reply.authorizer_len) {
       ldout(msgr->cct,10) << "reply.authorizer_len=" << reply.authorizer_len << dendl;
       bufferptr bp = buffer::create(reply.authorizer_len);
-      rc = tcp_read(bp.c_str(), reply.authorizer_len);
-      if (rc < 0) {
-        ldout(msgr->cct,10) << "connect couldn't read connect authorizer_reply" << cpp_strerror(rc) << dendl;
+      if (tcp_read(bp.c_str(), reply.authorizer_len) < 0) {
+        ldout(msgr->cct,10) << "connect couldn't read connect authorizer_reply" << dendl;
 	goto fail;
       }
       authorizer_reply.push_back(bp);
@@ -1165,9 +1156,8 @@ int Pipe::connect()
       if (reply.tag == CEPH_MSGR_TAG_SEQ) {
         ldout(msgr->cct,10) << "got CEPH_MSGR_TAG_SEQ, reading acked_seq and writing in_seq" << dendl;
         uint64_t newly_acked_seq = 0;
-        rc = tcp_read((char*)&newly_acked_seq, sizeof(newly_acked_seq));
-        if (rc < 0) {
-          ldout(msgr->cct,2) << "connect read error on newly_acked_seq" << cpp_strerror(rc) << dendl;
+        if (tcp_read((char*)&newly_acked_seq, sizeof(newly_acked_seq)) < 0) {
+          ldout(msgr->cct,2) << "connect read error on newly_acked_seq" << dendl;
           goto fail_locked;
         }
 	ldout(msgr->cct,2) << " got newly_acked_seq " << newly_acked_seq
@@ -1248,7 +1238,7 @@ int Pipe::connect()
 
  stop_locked:
   delete authorizer;
-  return rc;
+  return -1;
 }
 
 void Pipe::register_pipe()
@@ -2228,16 +2218,16 @@ int Pipe::do_sendmsg(struct msghdr *msg, unsigned len, bool more)
 #endif
     if (r == 0) 
       ldout(msgr->cct,10) << "do_sendmsg hmm do_sendmsg got r==0!" << dendl;
-    if (r < 0) {
-      r = -errno; 
-      ldout(msgr->cct,1) << "do_sendmsg error " << cpp_strerror(r) << dendl;
+    if (r < 0) { 
+      ldout(msgr->cct,1) << "do_sendmsg error " << cpp_strerror(errno) << dendl;
       restore_sigpipe();
-      return r;
+      return -1;
     }
     if (state == STATE_CLOSED) {
       ldout(msgr->cct,10) << "do_sendmsg oh look, state == CLOSED, giving up" << dendl;
+      errno = EINTR;
       restore_sigpipe();
-      return -EINTR; // close enough
+      return -1; // close enough
     }
 
     len -= r;
@@ -2459,7 +2449,7 @@ int Pipe::write_message(const ceph_msg_header& header, const ceph_msg_footer& fo
 int Pipe::tcp_read(char *buf, unsigned len)
 {
   if (sd < 0)
-    return -EINVAL;
+    return -1;
 
   while (len > 0) {
 
@@ -2488,7 +2478,7 @@ int Pipe::tcp_read(char *buf, unsigned len)
 int Pipe::tcp_read_wait()
 {
   if (sd < 0)
-    return -EINVAL;
+    return -1;
   struct pollfd pfd;
   short evmask;
   pfd.fd = sd;
@@ -2501,7 +2491,7 @@ int Pipe::tcp_read_wait()
     return 0;
 
   if (poll(&pfd, 1, msgr->timeout) <= 0)
-    return -errno;
+    return -1;
 
   evmask = POLLERR | POLLHUP | POLLNVAL;
 #if defined(__linux__)

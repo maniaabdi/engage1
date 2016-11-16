@@ -252,7 +252,7 @@ TEST_F(TestInternal, FlattenFailsToLockImage) {
       parent->unlock_image();
     }
     librbd::NoOpProgressContext no_op;
-    ASSERT_EQ(0, librbd::remove(m_ioctx, clone_name, "", no_op));
+    ASSERT_EQ(0, librbd::remove(m_ioctx, clone_name.c_str(), no_op));
   } BOOST_SCOPE_EXIT_END;
 
   ASSERT_EQ(0, open_image(clone_name, &ictx2));
@@ -601,6 +601,7 @@ TEST_F(TestInternal, ResizeCopyup)
 
   librbd::ImageCtx *ictx2;
   ASSERT_EQ(0, open_image(clone_name, &ictx2));
+
   ASSERT_EQ(0, snap_create(*ictx2, "snap1"));
 
   bufferptr read_ptr(bl.length());
@@ -610,8 +611,6 @@ TEST_F(TestInternal, ResizeCopyup)
   // verify full / partial object removal properly copyup
   librbd::NoOpProgressContext no_op;
   ASSERT_EQ(0, ictx2->operations->resize(m_image_size - (1 << order) - 32,
-                                         no_op));
-  ASSERT_EQ(0, ictx2->operations->resize(m_image_size - (2 << order) - 32,
                                          no_op));
   ASSERT_EQ(0, librbd::snap_set(ictx2, "snap1"));
 
@@ -631,9 +630,6 @@ TEST_F(TestInternal, ResizeCopyup)
 TEST_F(TestInternal, DiscardCopyup)
 {
   REQUIRE_FEATURE(RBD_FEATURE_LAYERING);
-
-  CephContext* cct = reinterpret_cast<CephContext*>(_rados.cct());
-  REQUIRE(!cct->_conf->rbd_skip_partial_discard);
 
   m_image_name = get_temp_image_name();
   m_image_size = 1 << 14;
@@ -808,7 +804,7 @@ TEST_F(TestInternal, WriteFullCopyup) {
     }
 
     librbd::NoOpProgressContext remove_no_op;
-    ASSERT_EQ(0, librbd::remove(m_ioctx, clone_name, "", remove_no_op));
+    ASSERT_EQ(0, librbd::remove(m_ioctx, clone_name.c_str(), remove_no_op));
   } BOOST_SCOPE_EXIT_END;
 
   ASSERT_EQ(0, open_image(clone_name, &ictx2));
@@ -834,17 +830,4 @@ TEST_F(TestInternal, WriteFullCopyup) {
   ASSERT_EQ(read_bl.length(), ictx2->aio_work_queue->read(0, read_bl.length(),
                                                           read_bl.c_str(), 0));
   ASSERT_TRUE(bl.contents_equal(read_bl));
-}
-
-TEST_F(TestInternal, RemoveById) {
-  REQUIRE_FEATURE(RBD_FEATURE_LAYERING);
-
-  librbd::ImageCtx *ictx;
-  ASSERT_EQ(0, open_image(m_image_name, &ictx));
-
-  std::string image_id = ictx->id;
-  close_image(ictx);
-
-  librbd::NoOpProgressContext remove_no_op;
-  ASSERT_EQ(0, librbd::remove(m_ioctx, "", image_id, remove_no_op));
 }

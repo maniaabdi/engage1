@@ -6,6 +6,7 @@
 #include "common/errno.h"
 #include "librbd/ExclusiveLock.h"
 #include "librbd/ImageCtx.h"
+#include "librbd/ImageWatcher.h"
 #include "librbd/ObjectMap.h"
 
 #define dout_subsys ceph_subsys_rbd
@@ -135,11 +136,7 @@ void SnapshotRemoveRequest<I>::send_remove_child() {
     parent_spec our_pspec;
     int r = image_ctx.get_parent_spec(m_snap_id, &our_pspec);
     if (r < 0) {
-      if (r == -ENOENT) {
-        ldout(cct, 1) << "No such snapshot" << dendl;
-      } else {
-        lderr(cct) << "failed to retrieve parent spec" << dendl;
-      }
+      lderr(cct) << "failed to retrieve parent spec" << dendl;
       m_state = STATE_ERROR;
 
       this->async_complete(r);

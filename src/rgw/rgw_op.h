@@ -18,8 +18,6 @@
 #include <set>
 #include <map>
 
-#include <boost/optional.hpp>
-
 #include "common/armor.h"
 #include "common/mime.h"
 #include "common/utf8.h"
@@ -449,7 +447,6 @@ public:
 class RGWSetBucketVersioning : public RGWOp {
 protected:
   bool enable_versioning;
-  bufferlist in_data;
 public:
   RGWSetBucketVersioning() : enable_versioning(false) {}
 
@@ -538,7 +535,7 @@ protected:
   obj_version ep_objv;
   bool has_cors;
   RGWCORSConfiguration cors_config;
-  boost::optional<std::string> swift_ver_location;
+  string swift_ver_location;
   map<string, buffer::list> attrs;
   set<string> rmattr_names;
 
@@ -784,7 +781,7 @@ protected:
   RGWAccessControlPolicy policy;
   RGWCORSConfiguration cors_config;
   string placement_rule;
-  boost::optional<std::string> swift_ver_location;
+  string swift_ver_location;
 
 public:
   RGWPutMetadataBucket()
@@ -1511,28 +1508,5 @@ static inline void complete_etag(MD5& hash, string *etag)
 
   *etag = etag_buf_str;
 } /* complete_etag */
-
-class RGWSetAttrs : public RGWOp {
-protected:
-  map<string, buffer::list> attrs;
-
-public:
-  RGWSetAttrs() {}
-  virtual ~RGWSetAttrs() {}
-
-  void emplace_attr(std::string&& key, buffer::list&& bl) {
-    attrs.emplace(std::move(key), std::move(bl));
-  }
-
-  int verify_permission();
-  void pre_exec();
-  void execute();
-
-  virtual int get_params() = 0;
-  virtual void send_response() = 0;
-  virtual const string name() { return "set_attrs"; }
-  virtual RGWOpType get_type() { return RGW_OP_SET_ATTRS; }
-  virtual uint32_t op_mask() { return RGW_OP_TYPE_WRITE; }
-};
 
 #endif /* CEPH_RGW_OP_H */

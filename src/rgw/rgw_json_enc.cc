@@ -86,7 +86,6 @@ void RGWObjManifest::dump(Formatter *f) const
   ::encode_json("prefix", prefix, f);
   ::encode_json("tail_bucket", tail_bucket, f);
   ::encode_json("rules", rules, f);
-  ::encode_json("tail_instance", tail_instance, f);
 }
 
 void rgw_log_entry::dump(Formatter *f) const
@@ -507,7 +506,6 @@ void rgw_bucket::dump(Formatter *f) const
   encode_json("index_pool", index_pool, f);
   encode_json("marker", marker, f);
   encode_json("bucket_id", bucket_id, f);
-  encode_json("tenant", tenant, f);
 }
 
 void rgw_bucket::decode_json(JSONObj *obj) {
@@ -517,7 +515,6 @@ void rgw_bucket::decode_json(JSONObj *obj) {
   JSONDecoder::decode_json("index_pool", index_pool, obj);
   JSONDecoder::decode_json("marker", marker, obj);
   JSONDecoder::decode_json("bucket_id", bucket_id, obj);
-  JSONDecoder::decode_json("tenant", tenant, obj);
 }
 
 void RGWBucketEntryPoint::dump(Formatter *f) const

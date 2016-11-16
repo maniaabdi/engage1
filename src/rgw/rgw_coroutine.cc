@@ -292,39 +292,30 @@ int RGWCoroutinesStack::unwind(int retcode)
 }
 
 
-bool RGWCoroutinesStack::collect(RGWCoroutine *op, int *ret, RGWCoroutinesStack *skip_stack) /* returns true if needs to be called again */
+bool RGWCoroutinesStack::collect(RGWCoroutine *op, int *ret) /* returns true if needs to be called again */
 {
-  bool done = true;
   rgw_spawned_stacks *s = (op ? &op->spawned : &spawned);
   *ret = 0;
   vector<RGWCoroutinesStack *> new_list;
 
   for (vector<RGWCoroutinesStack *>::iterator iter = s->entries.begin(); iter != s->entries.end(); ++iter) {
     RGWCoroutinesStack *stack = *iter;
-    if (stack == skip_stack || !stack->is_done()) {
+    if (!stack->is_done()) {
       new_list.push_back(stack);
-      if (!stack->is_done()) {
-        ldout(cct, 20) << "collect(): s=" << (void *)this << " stack=" << (void *)stack << " is still running" << dendl;
-      } else if (stack == skip_stack) {
-        ldout(cct, 20) << "collect(): s=" << (void *)this << " stack=" << (void *)stack << " explicitily skipping stack" << dendl;
-      }
+      ldout(cct, 20) << "collect(): s=" << (void *)this << " stack=" << (void *)stack << " is still running" << dendl;
       continue;
     }
     int r = stack->get_ret_status();
-    stack->put();
     if (r < 0) {
       *ret = r;
-      ldout(cct, 20) << "collect(): s=" << (void *)this << " stack=" << (void *)stack << " encountered error (r=" << r << "), skipping next stacks" << dendl;
-      new_list.insert(new_list.end(), ++iter, s->entries.end());
-      done &= (iter != s->entries.end());
-      break;
     }
 
     ldout(cct, 20) << "collect(): s=" << (void *)this << " stack=" << (void *)stack << " is complete" << dendl;
+    stack->put();
   }
 
   s->entries.swap(new_list);
-  return (!done);
+  return false;
 }
 
 bool RGWCoroutinesStack::collect_next(RGWCoroutine *op, int *ret, RGWCoroutinesStack **collected_stack) /* returns true if found a stack to collect */
@@ -358,9 +349,9 @@ bool RGWCoroutinesStack::collect_next(RGWCoroutine *op, int *ret, RGWCoroutinesS
   return false;
 }
 
-bool RGWCoroutinesStack::collect(int *ret, RGWCoroutinesStack *skip_stack) /* returns true if needs to be called again */
+bool RGWCoroutinesStack::collect(int *ret) /* returns true if needs to be called again */
 {
-  return collect(NULL, ret, skip_stack);
+  return collect(NULL, ret);
 }
 
 static void _aio_completion_notifier_cb(librados::completion_t cb, void *arg);
@@ -721,9 +712,9 @@ RGWCoroutinesStack *RGWCoroutine::spawn(RGWCoroutine *op, bool wait)
   return stack->spawn(this, op, wait);
 }
 
-bool RGWCoroutine::collect(int *ret, RGWCoroutinesStack *skip_stack) /* returns true if needs to be called again */
+bool RGWCoroutine::collect(int *ret) /* returns true if needs to be called again */
 {
-  return stack->collect(this, ret, skip_stack);
+  return stack->collect(this, ret);
 }
 
 bool RGWCoroutine::collect_next(int *ret, RGWCoroutinesStack **collected_stack) /* returns true if found a stack to collect */
@@ -761,18 +752,14 @@ ostream& operator<<(ostream& out, const RGWCoroutine& cr)
   return out;
 }
 
-bool RGWCoroutine::drain_children(int num_cr_left, RGWCoroutinesStack *skip_stack)
+bool RGWCoroutine::drain_children(int num_cr_left)
 {
   bool done = false;
-  assert(num_cr_left >= 0);
-  if (num_cr_left == 0 && skip_stack) {
-    num_cr_left = 1;
-  }
   reenter(&drain_cr) {
     while (num_spawned() > (size_t)num_cr_left) {
       yield wait_for_child();
       int ret;
-      while (collect(&ret, skip_stack)) {
+      while (collect(&ret)) {
         if (ret < 0) {
           ldout(cct, 10) << "collect() returned ret=" << ret << dendl;
           /* we should have reported this error */

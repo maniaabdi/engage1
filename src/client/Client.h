@@ -563,7 +563,10 @@ protected:
 
   int authenticate();
 
+  void put_qtree(Inode *in);
+  void invalidate_quota_tree(Inode *in);
   Inode* get_quota_root(Inode *in);
+
   bool check_quota_condition(
       Inode *in,
       std::function<bool (const Inode &)> test);
@@ -665,7 +668,7 @@ protected:
   void _schedule_invalidate_callback(Inode *in, int64_t off, int64_t len);
   void _invalidate_inode_cache(Inode *in);
   void _invalidate_inode_cache(Inode *in, int64_t off, int64_t len);
-  void _async_invalidate(vinodeno_t ino, int64_t off, int64_t len);
+  void _async_invalidate(InodeRef& in, int64_t off, int64_t len);
   bool _release(Inode *in);
   
   /**
@@ -753,8 +756,8 @@ private:
 
   // internal interface
   //   call these with client_lock held!
-  int _do_lookup(Inode *dir, const string& name, int mask, InodeRef *target, int uid, int gid);
-  int _lookup(Inode *dir, const string& dname, int mask, InodeRef *target, int uid, int gid);
+  int _do_lookup(Inode *dir, const string& name, InodeRef *target, int uid, int gid);
+  int _lookup(Inode *dir, const string& dname, InodeRef *target, int uid, int gid);
 
   int _link(Inode *in, Inode *dir, const char *name, int uid=-1, int gid=-1, InodeRef *inp = 0);
   int _unlink(Inode *dir, const char *name, int uid=-1, int gid=-1);

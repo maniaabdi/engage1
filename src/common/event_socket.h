@@ -18,7 +18,6 @@
 #define CEPH_COMMON_EVENT_SOCKET_H
 
 #include "include/event_type.h"
-#include <unistd.h>
 
 class EventSocket {
   int socket;

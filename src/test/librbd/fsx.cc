@@ -53,7 +53,6 @@
 #include "journal/Journaler.h"
 #include "journal/ReplayEntry.h"
 #include "journal/ReplayHandler.h"
-#include "journal/Settings.h"
 
 #include <boost/scope_exit.hpp>
 
@@ -323,7 +322,7 @@ int register_journal(rados_ioctx_t ioctx, const char *image_name) {
                 return r;
         }
 
-        journal::Journaler journaler(io_ctx, image_id, JOURNAL_CLIENT_ID, {});
+        journal::Journaler journaler(io_ctx, image_id, JOURNAL_CLIENT_ID, 0);
         r = journaler.register_client(bufferlist());
         if (r < 0) {
                 simple_err("failed to register journal client", r);
@@ -342,7 +341,7 @@ int unregister_journal(rados_ioctx_t ioctx, const char *image_name) {
                 return r;
         }
 
-        journal::Journaler journaler(io_ctx, image_id, JOURNAL_CLIENT_ID, {});
+        journal::Journaler journaler(io_ctx, image_id, JOURNAL_CLIENT_ID, 0);
         r = journaler.unregister_client();
         if (r < 0) {
                 simple_err("failed to unregister journal client", r);
@@ -394,7 +393,7 @@ int replay_journal(rados_ioctx_t ioctx, const char *image_name,
                 return r;
         }
 
-        journal::Journaler journaler(io_ctx, image_id, JOURNAL_CLIENT_ID, {});
+        journal::Journaler journaler(io_ctx, image_id, JOURNAL_CLIENT_ID, 0);
         C_SaferCond init_ctx;
         journaler.init(&init_ctx);
         BOOST_SCOPE_EXIT_ALL( (&journaler) ) {
@@ -407,7 +406,7 @@ int replay_journal(rados_ioctx_t ioctx, const char *image_name,
                 return r;
         }
 
-        journal::Journaler replay_journaler(io_ctx, replay_image_id, "", {});
+        journal::Journaler replay_journaler(io_ctx, replay_image_id, "", 0);
 
         C_SaferCond replay_init_ctx;
         replay_journaler.init(&replay_init_ctx);
@@ -502,7 +501,7 @@ struct rbd_ctx {
 	int krbd_fd;		/* image /dev/rbd<id> fd */ /* reused for nbd test */
 };
 
-#define RBD_CTX_INIT	(struct rbd_ctx) { NULL, NULL, NULL, -1}
+#define RBD_CTX_INIT	(struct rbd_ctx) { NULL, NULL, NULL, -1 }
 
 struct rbd_operations {
 	int (*open)(const char *name, struct rbd_ctx *ctx);
@@ -524,7 +523,6 @@ char *iname;			/* name of our test image */
 rados_t cluster;		/* handle for our test cluster */
 rados_ioctx_t ioctx;		/* handle for our test pool */
 struct krbd_ctx *krbd;		/* handle for libkrbd */
-bool skip_partial_discard;	/* rbd_skip_partial_discard config value*/
 
 /*
  * librbd/krbd rbd_operations handlers.  Given the rest of fsx.c, no
@@ -827,7 +825,7 @@ krbd_close(struct rbd_ctx *ctx)
 		return ret;
 	}
 
-	ret = krbd_unmap(krbd, ctx->krbd_name, "");
+	ret = krbd_unmap(krbd, ctx->krbd_name);
 	if (ret < 0) {
 		prt("krbd_unmap(%s) failed\n", ctx->krbd_name);
 		return ret;
@@ -1044,8 +1042,7 @@ nbd_open(const char *name, struct rbd_ctx *ctx)
 	char dev[4096];
 	char *devnode;
 
-	SubProcess process("rbd-nbd", SubProcess::KEEP, SubProcess::PIPE,
-			   SubProcess::KEEP);
+	SubProcess process("rbd-nbd", SubProcess::KEEP, SubProcess::PIPE);
 	process.add_cmd_arg("map");
 	std::string img;
 	img.append(pool);
@@ -1355,25 +1352,10 @@ report_failure(int status)
 #define short_at(cp) ((unsigned short)((*((unsigned char *)(cp)) << 8) | \
 				        *(((unsigned char *)(cp)) + 1)))
 
-int
-fsxcmp(char *good_buf, char *temp_buf, unsigned size)
-{
-	if (!skip_partial_discard) {
-		return memcmp(good_buf, temp_buf, size);
-	}
-
-	for (unsigned i = 0; i < size; i++) {
-		if (good_buf[i] != temp_buf[i] && good_buf[i] != 0) {
-			return good_buf[i] - temp_buf[i];
-		}
-	}
-	return 0;
-}
-
 void
 check_buffers(char *good_buf, char *temp_buf, unsigned offset, unsigned size)
 {
-	if (fsxcmp(good_buf + offset, temp_buf, size) != 0) {
+	if (memcmp(good_buf + offset, temp_buf, size) != 0) {
 		unsigned i = 0;
 		unsigned n = 0;
 
@@ -1464,7 +1446,6 @@ create_image()
 {
 	int r;
 	int order = 0;
-	char buf[32];
 
 	r = rados_create(&cluster, NULL);
 	if (r < 0) {
@@ -1522,15 +1503,6 @@ create_image()
                         goto failed_open;
                 }
         }
-
-	r = rados_conf_get(cluster, "rbd_skip_partial_discard", buf,
-			   sizeof(buf));
-	if (r < 0) {
-		simple_err("Could not get rbd_skip_partial_discard value", r);
-		goto failed_open;
-	}
-	skip_partial_discard = (strcmp(buf, "true") == 0);
-
 	return 0;
 
  failed_open:

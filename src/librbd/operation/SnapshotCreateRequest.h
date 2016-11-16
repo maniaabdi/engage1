@@ -6,6 +6,7 @@
 
 #include "librbd/operation/Request.h"
 #include "librbd/parent_types.h"
+#include <iosfwd>
 #include <string>
 
 class Context;
@@ -105,6 +106,7 @@ private:
   void send_release_snap_id();
   Context *handle_release_snap_id(int *result);
 
+  void finalize(int r);
   void update_snap_context();
 
   void save_result(int *result) {

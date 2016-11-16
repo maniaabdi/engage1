@@ -750,6 +750,18 @@ int librados::IoCtxImpl::aio_operate_read(const object_t &oid,
   return 0;
 }
 
+/*engage1*/
+int librados::IoCtxImpl::cache_aio_operate_read(const object_t &oid, AioCompletionImpl *c, cacheAioRequest *cc)
+{
+    Context *onack = new C_aio_Ack(c);
+    c->is_read = true;
+    c->io = this;
+    cc->onack = onack;
+    return 0;
+}
+/*engage1*/
+
+
 int librados::IoCtxImpl::aio_operate(const object_t& oid,
 				     ::ObjectOperation *o, AioCompletionImpl *c,
 				     const SnapContext& snap_context, int flags)

@@ -4,6 +4,7 @@
 #ifndef CEPH_LIBRBD_EXCLUSIVE_LOCK_RELEASE_REQUEST_H
 #define CEPH_LIBRBD_EXCLUSIVE_LOCK_RELEASE_REQUEST_H
 
+#include "include/int_types.h"
 #include "librbd/ImageCtx.h"
 #include <string>
 

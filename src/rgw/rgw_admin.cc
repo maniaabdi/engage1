@@ -114,7 +114,6 @@ void _usage()
   cout << "  zone modify                modify an existing zone\n";
   cout << "  zone set                   set zone cluster params (requires infile)\n";
   cout << "  zone list                  list all zones set on this cluster\n";
-  cout << "  zone rename                rename a zone\n";
   cout << "  pool add                   add an existing pool for data placement\n";
   cout << "  pool rm                    remove an existing pool from data placement set\n";
   cout << "  pools list                 list placement active set\n";
@@ -238,7 +237,6 @@ void _usage()
   cout << "\nOrphans search options:\n";
   cout << "   --pool                    data pool to scan for leaked rados objects in\n";
   cout << "   --num-shards              num of shards to use for keeping the temporary scan info\n";
-  cout << "   --orphan-stale-secs       num of seconds to wait before declaring an object to be an orphan (default: 86400)\n";
   cout << "   --job-id                  set the job id (for orphans find)\n";
   cout << "   --max-concurrent-ios      maximum concurrent ios for orphans find (default: 32)\n";
   cout << "\n";
@@ -1524,10 +1522,10 @@ static int update_period(const string& realm_id, const string& realm_name,
   return 0;
 }
 
-static int init_bucket_for_sync(const string& tenant, const string& bucket_name,
-                                const string& bucket_id, rgw_bucket& bucket)
+static int init_bucket_for_sync(const string& tenant, const string& bucket_name, string& bucket_id)
 {
   RGWBucketInfo bucket_info;
+  rgw_bucket bucket;
 
   int ret = init_bucket(tenant, bucket_name, bucket_id, bucket_info, bucket);
   if (ret == -ENOENT) {
@@ -1535,6 +1533,8 @@ static int init_bucket_for_sync(const string& tenant, const string& bucket_name,
       cerr << "ERROR: bucket id specified" << std::endl;
       return EINVAL;
     }
+  } else {
+    bucket_id = bucket.bucket_id;
   }
   if (ret < 0) {
     cerr << "ERROR: could not init bucket: " << cpp_strerror(-ret) << std::endl;
@@ -2001,7 +2001,6 @@ int main(int argc, char **argv)
   int remove_bad = false;
   int check_head_obj_locator = false;
   int max_buckets = -1;
-  bool max_buckets_specified = false;
   map<string, bool> categories;
   string caps;
   int check_objects = false;
@@ -2077,7 +2076,6 @@ int main(int argc, char **argv)
       secret_key = val;
     } else if (ceph_argparse_witharg(args, i, &val, "-e", "--email", (char*)NULL)) {
       user_email = val;
-      user_op.user_email_specified=true;
     } else if (ceph_argparse_witharg(args, i, &val, "-n", "--display-name", (char*)NULL)) {
       display_name = val;
     } else if (ceph_argparse_witharg(args, i, &val, "-b", "--bucket", (char*)NULL)) {
@@ -2141,7 +2139,6 @@ int main(int argc, char **argv)
         cerr << "ERROR: failed to parse max buckets: " << err << std::endl;
         return EINVAL;
       }
-      max_buckets_specified = true;
     } else if (ceph_argparse_witharg(args, i, &val, "--max-entries", (char*)NULL)) {
       max_entries = (int)strict_strtol(val.c_str(), 10, &err);
       if (!err.empty()) {
@@ -3043,20 +3040,6 @@ int main(int argc, char **argv)
           need_update = true;
         }
 
-        if (!realm_id.empty()) {
-          zonegroup.realm_id = realm_id;
-          need_update = true;
-        } else if (!realm_name.empty()) {
-          // get realm id from name
-          RGWRealm realm{g_ceph_context, store};
-          ret = realm.read_id(realm_name, zonegroup.realm_id);
-          if (ret < 0) {
-            cerr << "failed to find realm by name " << realm_name << std::endl;
-            return -ret;
-          }
-          need_update = true;
-        }
-
         if (need_update) {
           zonegroup.post_process_params();
 	  ret = zonegroup.update();
@@ -3530,20 +3513,6 @@ int main(int argc, char **argv)
           need_zone_update = true;
         }
 
-        if (!realm_id.empty()) {
-          zone.realm_id = realm_id;
-          need_zone_update = true;
-        } else if (!realm_name.empty()) {
-          // get realm id from name
-          RGWRealm realm{g_ceph_context, store};
-          ret = realm.read_id(realm_name, zone.realm_id);
-          if (ret < 0) {
-            cerr << "failed to find realm by name " << realm_name << std::endl;
-            return -ret;
-          }
-          need_zone_update = true;
-        }
-
         if (need_zone_update) {
           ret = zone.update();
           if (ret < 0) {
@@ -3665,7 +3634,7 @@ int main(int argc, char **argv)
   if (gen_secret_key)
     user_op.set_gen_secret(); // assume that a key pair should be created
 
-  if (max_buckets_specified)
+  if (max_buckets >= 0)
     user_op.set_max_buckets(max_buckets);
 
   if (system_specified)
@@ -5150,12 +5119,11 @@ next:
       cerr << "ERROR: bucket not specified" << std::endl;
       return EINVAL;
     }
-    rgw_bucket bucket;
-    int ret = init_bucket_for_sync(tenant, bucket_name, bucket_id, bucket);
+    int ret = init_bucket_for_sync(tenant, bucket_name, bucket_id);
     if (ret < 0) {
       return -ret;
     }
-    RGWBucketSyncStatusManager sync(store, source_zone, bucket);
+    RGWBucketSyncStatusManager sync(store, source_zone, bucket_name, bucket_id);
 
     ret = sync.init();
     if (ret < 0) {
@@ -5178,12 +5146,11 @@ next:
       cerr << "ERROR: bucket not specified" << std::endl;
       return EINVAL;
     }
-    rgw_bucket bucket;
-    int ret = init_bucket_for_sync(tenant, bucket_name, bucket_id, bucket);
+    int ret = init_bucket_for_sync(tenant, bucket_name, bucket_id);
     if (ret < 0) {
       return -ret;
     }
-    RGWBucketSyncStatusManager sync(store, source_zone, bucket);
+    RGWBucketSyncStatusManager sync(store, source_zone, bucket_name, bucket_id);
 
     ret = sync.init();
     if (ret < 0) {
@@ -5211,12 +5178,11 @@ next:
       cerr << "ERROR: bucket not specified" << std::endl;
       return EINVAL;
     }
-    rgw_bucket bucket;
-    int ret = init_bucket_for_sync(tenant, bucket_name, bucket_id, bucket);
+    int ret = init_bucket_for_sync(tenant, bucket_name, bucket_id);
     if (ret < 0) {
       return -ret;
     }
-    RGWBucketSyncStatusManager sync(store, source_zone, bucket);
+    RGWBucketSyncStatusManager sync(store, source_zone, bucket_name, bucket_id);
 
     ret = sync.init();
     if (ret < 0) {

@@ -1,5 +1,4 @@
 EXTRA_DIST += \
-	tracing/CMakeLists.txt \
 	tracing/tracing-common.h
 
 if WITH_LTTNG

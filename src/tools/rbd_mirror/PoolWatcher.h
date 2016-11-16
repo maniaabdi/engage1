@@ -50,8 +50,6 @@ public:
   PoolWatcher(const PoolWatcher&) = delete;
   PoolWatcher& operator=(const PoolWatcher&) = delete;
 
-  bool is_blacklisted() const;
-
   const ImageIds& get_images() const;
   void refresh_images(bool reschedule=true);
 
@@ -61,7 +59,6 @@ private:
   Cond &m_refresh_cond;
 
   bool m_stopping = false;
-  bool m_blacklisted = false;
   SafeTimer m_timer;
   double m_interval;
 

@@ -660,32 +660,35 @@ public:
 
 class RGWAsyncGetBucketInstanceInfo : public RGWAsyncRadosRequest {
   RGWRados *store;
-  rgw_bucket bucket;
+  string bucket_name;
+  string bucket_id;
   RGWBucketInfo *bucket_info;
 
 protected:
   int _send_request();
 public:
-  RGWAsyncGetBucketInstanceInfo(RGWCoroutine *caller, RGWAioCompletionNotifier *cn,
-                                RGWRados *_store, const rgw_bucket& bucket,
-                                RGWBucketInfo *_bucket_info)
-    : RGWAsyncRadosRequest(caller, cn), store(_store),
-      bucket(bucket), bucket_info(_bucket_info) {}
+  RGWAsyncGetBucketInstanceInfo(RGWCoroutine *caller, RGWAioCompletionNotifier *cn, RGWRados *_store,
+		        const string& _bucket_name, const string& _bucket_id,
+                        RGWBucketInfo *_bucket_info) : RGWAsyncRadosRequest(caller, cn), store(_store),
+                                                       bucket_name(_bucket_name), bucket_id(_bucket_id),
+                                                       bucket_info(_bucket_info) {}
 };
 
 class RGWGetBucketInstanceInfoCR : public RGWSimpleCoroutine {
   RGWAsyncRadosProcessor *async_rados;
   RGWRados *store;
-  rgw_bucket bucket;
+  string bucket_name;
+  string bucket_id;
   RGWBucketInfo *bucket_info;
 
   RGWAsyncGetBucketInstanceInfo *req;
   
 public:
   RGWGetBucketInstanceInfoCR(RGWAsyncRadosProcessor *_async_rados, RGWRados *_store,
-                             const rgw_bucket& bucket, RGWBucketInfo *_bucket_info)
-    : RGWSimpleCoroutine(_store->ctx()), async_rados(_async_rados), store(_store),
-      bucket(bucket), bucket_info(_bucket_info), req(NULL) {}
+		        const string& _bucket_name, const string& _bucket_id,
+                        RGWBucketInfo *_bucket_info) : RGWSimpleCoroutine(_store->ctx()), async_rados(_async_rados), store(_store),
+                                                       bucket_name(_bucket_name), bucket_id(_bucket_id),
+                                                       bucket_info(_bucket_info), req(NULL) {}
   ~RGWGetBucketInstanceInfoCR() {
     request_cleanup();
   }
@@ -697,7 +700,7 @@ public:
   }
 
   int send_request() {
-    req = new RGWAsyncGetBucketInstanceInfo(this, stack->create_completion_notifier(), store, bucket, bucket_info);
+    req = new RGWAsyncGetBucketInstanceInfo(this, stack->create_completion_notifier(), store, bucket_name, bucket_id, bucket_info);
     async_rados->queue(req);
     return 0;
   }

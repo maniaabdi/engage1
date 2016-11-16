@@ -60,10 +60,7 @@ bool cephx_build_service_ticket_blob(CephContext *cct, CephXSessionAuthInfo& inf
 	   << " ticket_info.ticket.name=" << ticket_info.ticket.name.to_str() << dendl;
   blob.secret_id = info.secret_id;
   std::string error;
-  if (!info.service_secret.get_secret().length())
-    error = "invalid key";  // Bad key?
-  else
-    encode_encrypt_enc_bl(cct, ticket_info, info.service_secret, blob.blob, error);
+  encode_encrypt_enc_bl(cct, ticket_info, info.service_secret, blob.blob, error);
   if (!error.empty()) {
     ldout(cct, -1) << "cephx_build_service_ticket_blob failed with error "
 	  << error << dendl;
@@ -431,10 +428,7 @@ bool cephx_verify_authorizer(CephContext *cct, KeyStore *keys,
     }
   }
   std::string error;
-  if (!service_secret.get_secret().length())
-    error = "invalid key";  // Bad key?
-  else
-    decode_decrypt_enc_bl(cct, ticket_info, service_secret, ticket.blob, error);
+  decode_decrypt_enc_bl(cct, ticket_info, service_secret, ticket.blob, error);
   if (!error.empty()) {
     ldout(cct, 0) << "verify_authorizer could not decrypt ticket info: error: "
       << error << dendl;

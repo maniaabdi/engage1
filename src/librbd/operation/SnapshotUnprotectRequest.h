@@ -5,6 +5,7 @@
 #define CEPH_LIBRBD_OPERATION_SNAPSHOT_UNPROTECT_REQUEST_H
 
 #include "librbd/operation/Request.h"
+#include <iosfwd>
 #include <string>
 
 class Context;

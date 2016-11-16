@@ -3,6 +3,7 @@
 #ifndef LIBRBD_TASK_FINISHER_H
 #define LIBRBD_TASK_FINISHER_H
 
+#include "include/int_types.h"
 #include "include/Context.h"
 #include "common/Finisher.h"
 #include "common/Mutex.h"
@@ -11,6 +12,7 @@
 #include <utility>
 
 class CephContext;
+class Context;
 
 namespace librbd {
 
@@ -61,17 +63,13 @@ public:
     }
   }
 
-  void cancel_all(Context *comp) {
-    {
-      Mutex::Locker l(*m_lock);
-      for (typename TaskContexts::iterator it = m_task_contexts.begin();
-           it != m_task_contexts.end(); ++it) {
-        delete it->second.first;
-        m_safe_timer->cancel_event(it->second.second);
-      }
-      m_task_contexts.clear();
+  void cancel_all() {
+    Mutex::Locker l(*m_lock);
+    for (typename TaskContexts::iterator it = m_task_contexts.begin();
+         it != m_task_contexts.end(); ++it) {
+      delete it->second.first;
     }
-    m_finisher->queue(comp);
+    m_task_contexts.clear();
   }
 
   bool add_event_after(const Task& task, double seconds, Context *ctx) {

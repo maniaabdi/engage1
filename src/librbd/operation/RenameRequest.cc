@@ -66,11 +66,7 @@ bool RenameRequest<I>::should_complete(int r) {
                 << "r=" << r << dendl;
   r = filter_state_return_code(r);
   if (r < 0) {
-    if (r == -EEXIST) {
-      ldout(cct, 1) << "image already exists" << dendl;
-    } else {
-      lderr(cct) << "encountered error: " << cpp_strerror(r) << dendl;
-    }
+    lderr(cct) << "encountered error: " << cpp_strerror(r) << dendl;
     return true;
   }
 

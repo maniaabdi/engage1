@@ -955,7 +955,6 @@ void Server::force_clients_readonly()
 void Server::journal_and_reply(MDRequestRef& mdr, CInode *in, CDentry *dn, LogEvent *le, MDSInternalContextBase *fin)
 {
   dout(10) << "journal_and_reply tracei " << in << " tracedn " << dn << dendl;
-  assert(!mdr->has_completed);
 
   // note trace items for eventual reply.
   mdr->tracei = in;
@@ -2150,23 +2149,6 @@ bool Server::check_access(MDRequestRef& mdr, CInode *in, unsigned mask)
   return true;
 }
 
-/**
- * check whether fragment has reached maximum size
- *
- */
-bool Server::check_fragment_space(MDRequestRef &mdr, CDir *in)
-{
-  const auto size = in->get_frag_size();
-  if (size >= g_conf->mds_bal_fragment_size_max) {
-    dout(10) << "fragment " << *in << " size exceeds " << g_conf->mds_bal_fragment_size_max << " (ENOSPC)" << dendl;
-    respond_to_request(mdr, -ENOSPC);
-    return false;
-  }
-
-  return true;
-}
-
-
 /** validate_dentry_dir
  *
  * verify that the dir exists and would own the dname.
@@ -2251,19 +2233,14 @@ CDentry* Server::prepare_stray_dentry(MDRequestRef& mdr, CInode *in)
 {
   CDentry *straydn = mdr->straydn;
   if (straydn) {
-    string straydname;
-    in->name_stray_dentry(straydname);
-    if (straydn->get_name() == straydname)
+    string name;
+    in->name_stray_dentry(name);
+    if (straydn->get_name() == name)
       return straydn;
 
     assert(!mdr->done_locking);
     mdr->unpin(straydn);
   }
-
-  CDir *straydir = mdcache->get_stray_dir(in);
-
-  if (!check_fragment_space(mdr, straydir))
-    return NULL;
 
   straydn = mdcache->get_or_create_stray_dentry(in);
   mdr->straydn = straydn;
@@ -2918,13 +2895,9 @@ void Server::handle_client_open(MDRequestRef& mdr)
     return;
   }
 
-  if (!cur->inode.is_file()) {
-    // can only open non-regular inode with mode FILE_MODE_PIN, at least for now.
+  // can only open a dir with mode FILE_MODE_PIN, at least for now.
+  if (cur->inode.is_dir())
     cmode = CEPH_FILE_MODE_PIN;
-    // the inode is symlink and client wants to follow it, ignore the O_TRUNC flag.
-    if (cur->inode.is_symlink() && !(flags & O_NOFOLLOW))
-      flags &= ~O_TRUNC;
-  }
 
   dout(10) << "open flags = " << flags
 	   << ", filemode = " << cmode
@@ -2937,16 +2910,9 @@ void Server::handle_client_open(MDRequestRef& mdr)
     respond_to_request(mdr, -ENXIO);                 // FIXME what error do we want?
     return;
     }*/
-  if ((flags & O_DIRECTORY) && !cur->inode.is_dir() && !cur->inode.is_symlink()) {
+  if ((flags & O_DIRECTORY) && !cur->inode.is_dir()) {
     dout(7) << "specified O_DIRECTORY on non-directory " << *cur << dendl;
     respond_to_request(mdr, -EINVAL);
-    return;
-  }
-
-  if ((flags & O_TRUNC) && !cur->inode.is_file()) {
-    dout(7) << "specified O_TRUNC on !(file|symlink) " << *cur << dendl;
-    // we should return -EISDIR for directory, return -EINVAL for other non-regular
-    respond_to_request(mdr, cur->inode.is_dir() ? EISDIR : -EINVAL);
     return;
   }
 
@@ -3204,16 +3170,12 @@ void Server::handle_client_openc(MDRequestRef& mdr)
     return;
   }
 
-  CDir *dir = dn->get_dir();
-  CInode *diri = dir->get_inode();
+  CInode *diri = dn->get_dir()->get_inode();
   rdlocks.insert(&diri->authlock);
   if (!mds->locker->acquire_locks(mdr, rdlocks, wrlocks, xlocks))
     return;
 
   if (!check_access(mdr, diri, access))
-    return;
-
-  if (!check_fragment_space(mdr, dir))
     return;
 
   CDentry::linkage_t *dnl = dn->get_projected_linkage();
@@ -4617,9 +4579,6 @@ void Server::handle_client_mknod(MDRequestRef& mdr)
   if (!check_access(mdr, diri, MAY_WRITE))
     return;
 
-  if (!check_fragment_space(mdr, dn->get_dir()))
-    return;
-
   unsigned mode = req->head.args.mknod.mode;
   if ((mode & S_IFMT) == 0)
     mode |= S_IFREG;
@@ -4703,17 +4662,13 @@ void Server::handle_client_mkdir(MDRequestRef& mdr)
     respond_to_request(mdr, -EROFS);
     return;
   }
-  CDir *dir = dn->get_dir();
-  CInode *diri = dir->get_inode();
+  CInode *diri = dn->get_dir()->get_inode();
   rdlocks.insert(&diri->authlock);
   if (!mds->locker->acquire_locks(mdr, rdlocks, wrlocks, xlocks))
     return;
 
   // mkdir check access
   if (!check_access(mdr, diri, MAY_WRITE))
-    return;
-
-  if (!check_fragment_space(mdr, dir))
     return;
 
   // new inode
@@ -4787,17 +4742,13 @@ void Server::handle_client_symlink(MDRequestRef& mdr)
     respond_to_request(mdr, -EROFS);
     return;
   }
-  CDir *dir = dn->get_dir();
-  CInode *diri = dir->get_inode();
+  CInode *diri = dn->get_dir()->get_inode();
   rdlocks.insert(&diri->authlock);
   if (!mds->locker->acquire_locks(mdr, rdlocks, wrlocks, xlocks))
     return;
 
   if (!check_access(mdr, diri, MAY_WRITE))
    return;
-
-  if (!check_fragment_space(mdr, dir))
-    return;
 
   unsigned mode = S_IFLNK | 0777;
   CInode *newi = prepare_new_inode(mdr, dn->get_dir(), inodeno_t(req->head.ino), mode);
@@ -4870,9 +4821,6 @@ void Server::handle_client_link(MDRequestRef& mdr)
     return;
 
   if (!check_access(mdr, dir->get_inode(), MAY_WRITE))
-    return;
-
-  if (!check_fragment_space(mdr, dir))
     return;
 
   // go!
@@ -5446,8 +5394,6 @@ void Server::handle_client_unlink(MDRequestRef& mdr)
   CDentry *straydn = NULL;
   if (dnl->is_primary()) {
     straydn = prepare_stray_dentry(mdr, dnl->get_inode());
-    if (!straydn)
-      return;
     dout(10) << " straydn is " << *straydn << dendl;
   } else if (mdr->straydn) {
     mdr->unpin(mdr->straydn);
@@ -6228,8 +6174,6 @@ void Server::handle_client_rename(MDRequestRef& mdr)
   CDentry *straydn = NULL;
   if (destdnl->is_primary() && !linkmerge) {
     straydn = prepare_stray_dentry(mdr, destdnl->get_inode());
-    if (!straydn)
-      return;
     dout(10) << " straydn is " << *straydn << dendl;
   } else if (mdr->straydn) {
     mdr->unpin(mdr->straydn);
@@ -6338,9 +6282,6 @@ void Server::handle_client_rename(MDRequestRef& mdr)
     return;
 
   if (!check_access(mdr, destdn->get_dir()->get_inode(), MAY_WRITE))
-    return;
-
-  if (!check_fragment_space(mdr, destdn->get_dir()))
     return;
 
   if (!check_access(mdr, srci, MAY_WRITE))

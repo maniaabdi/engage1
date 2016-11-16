@@ -30,15 +30,9 @@ public:
   typedef std::list<Entry> Entries;
   typedef interval_set<uint64_t> InvalidRanges;
 
-  enum RefetchState {
-    REFETCH_STATE_NONE,
-    REFETCH_STATE_REQUIRED,
-    REFETCH_STATE_IMMEDIATE
-  };
-
   ObjectPlayer(librados::IoCtx &ioctx, const std::string &object_oid_prefix,
                uint64_t object_num, SafeTimer &timer, Mutex &timer_lock,
-               uint8_t order, uint64_t max_fetch_bytes);
+               uint8_t order);
   ~ObjectPlayer();
 
   inline const std::string &get_oid() const {
@@ -69,13 +63,10 @@ public:
   }
 
   inline bool refetch_required() const {
-    return (get_refetch_state() != REFETCH_STATE_NONE);
+    return m_refetch_required;
   }
-  inline RefetchState get_refetch_state() const {
-    return m_refetch_state;
-  }
-  inline void set_refetch_state(RefetchState refetch_state) {
-    m_refetch_state = refetch_state;
+  inline void clear_refetch_required() {
+    m_refetch_required = false;
   }
 
 private:
@@ -86,7 +77,8 @@ private:
     ObjectPlayerPtr object_player;
     Context *on_finish;
     bufferlist read_bl;
-    C_Fetch(ObjectPlayer *o, Context *ctx) : object_player(o), on_finish(ctx) {
+    C_Fetch(ObjectPlayer *o, Context *ctx)
+      : object_player(o), on_finish(ctx) {
     }
     virtual void finish(int r);
   };
@@ -112,7 +104,6 @@ private:
   Mutex &m_timer_lock;
 
   uint8_t m_order;
-  uint64_t m_max_fetch_bytes;
 
   double m_watch_interval;
   Context *m_watch_task;
@@ -120,8 +111,7 @@ private:
   mutable Mutex m_lock;
   bool m_fetch_in_progress;
   bufferlist m_read_bl;
-  uint32_t m_read_off = 0;
-  uint32_t m_read_bl_off = 0;
+  uint32_t m_read_off;
 
   Entries m_entries;
   EntryKeys m_entry_keys;
@@ -130,11 +120,9 @@ private:
   Context *m_watch_ctx = nullptr;
 
   bool m_unwatched = false;
-  RefetchState m_refetch_state = REFETCH_STATE_IMMEDIATE;
+  bool m_refetch_required = true;
 
-  int handle_fetch_complete(int r, const bufferlist &bl, bool *refetch);
-
-  void clear_invalid_range(uint32_t off, uint32_t len);
+  int handle_fetch_complete(int r, const bufferlist &bl);
 
   void schedule_watch();
   bool cancel_watch();

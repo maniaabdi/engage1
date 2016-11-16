@@ -1,9 +1,6 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab
 
-#include <boost/optional.hpp>
-#include <boost/utility/in_place_factory.hpp>
-
 #include "include/assert.h"
 
 #include "common/Formatter.h"
@@ -508,33 +505,6 @@ static void get_rmattrs_from_headers(const req_state * const s,
   }
 }
 
-static int get_swift_versioning_settings(
-  req_state * const s,
-  boost::optional<std::string>& swift_ver_location)
-{
-  /* Removing the Swift's versions location has lower priority than setting
-   * a new one. That's the reason why we're handling it first. */
-  const std::string vlocdel =
-    s->info.env->get("HTTP_X_REMOVE_VERSIONS_LOCATION", "");
-  if (vlocdel.size()) {
-    swift_ver_location = boost::in_place(std::string());
-  }
-
-  std::string vloc = s->info.env->get("HTTP_X_VERSIONS_LOCATION", "");
-  if (vloc.size()) {
-    /* If the Swift's versioning is globally disabled but someone wants to
-     * enable it for a given container, new version of Swift will generate
-     * the precondition failed error. */
-    if (! s->cct->_conf->rgw_swift_versioning_enabled) {
-      return -ERR_PRECONDITION_FAILED;
-    }
-
-    swift_ver_location = std::move(vloc);
-  }
-
-  return 0;
-}
-
 int RGWCreateBucket_ObjStore_SWIFT::get_params()
 {
   bool has_policy;
@@ -553,7 +523,11 @@ int RGWCreateBucket_ObjStore_SWIFT::get_params()
                            CONT_REMOVE_ATTR_PREFIX, rmattr_names);
   placement_rule = s->info.env->get("HTTP_X_STORAGE_POLICY", "");
 
-  return get_swift_versioning_settings(s, swift_ver_location);
+  if (s->cct->_conf->rgw_swift_versioning_enabled) {
+    swift_ver_location = s->info.env->get("HTTP_X_VERSIONS_LOCATION", "");
+  }
+
+  return 0;
 }
 
 void RGWCreateBucket_ObjStore_SWIFT::send_response()
@@ -767,7 +741,10 @@ int RGWPutMetadataBucket_ObjStore_SWIFT::get_params()
 			   rmattr_names);
   placement_rule = s->info.env->get("HTTP_X_STORAGE_POLICY", "");
 
-  return get_swift_versioning_settings(s, swift_ver_location);
+  if (s->cct->_conf->rgw_swift_versioning_enabled) {
+    swift_ver_location = s->info.env->get("HTTP_X_VERSIONS_LOCATION", "");
+  }
+  return 0;
 }
 
 void RGWPutMetadataBucket_ObjStore_SWIFT::send_response()

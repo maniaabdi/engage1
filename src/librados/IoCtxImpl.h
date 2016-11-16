@@ -25,6 +25,7 @@
 #include "include/xlist.h"
 #include "osd/osd_types.h"
 #include "osdc/Objecter.h"
+#include "rgw/rgw_rados.h"
 
 class RadosClient;
 
@@ -159,6 +160,9 @@ struct librados::IoCtxImpl {
 		  int flags);
   int aio_operate_read(const object_t& oid, ::ObjectOperation *o,
 		       AioCompletionImpl *c, int flags, bufferlist *pbl);
+  
+  int cache_aio_operate_read(const object_t& oid, /*engage1*/
+AioCompletionImpl *c, cacheAioRequest *cc);
 
   struct C_aio_Ack : public Context {
     librados::AioCompletionImpl *c;

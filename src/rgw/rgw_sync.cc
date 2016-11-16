@@ -591,13 +591,12 @@ class RGWInitSyncStatusCoroutine : public RGWCoroutine {
   rgw_meta_sync_info status;
   vector<RGWMetadataLogInfo> shards_info;
   RGWContinuousLeaseCR *lease_cr;
-  RGWCoroutinesStack *lease_stack;
 public:
   RGWInitSyncStatusCoroutine(RGWMetaSyncEnv *_sync_env,
                              const rgw_meta_sync_info &status)
     : RGWCoroutine(_sync_env->store->ctx()), sync_env(_sync_env),
       status(status), shards_info(status.num_shards),
-      lease_cr(nullptr), lease_stack(nullptr) {}
+      lease_cr(NULL) {}
 
   ~RGWInitSyncStatusCoroutine() {
     if (lease_cr) {
@@ -617,11 +616,11 @@ public:
 	lease_cr = new RGWContinuousLeaseCR(sync_env->async_rados, store, store->get_zone_params().log_pool, sync_env->status_oid(),
                                             lock_name, lock_duration, this);
         lease_cr->get();
-        lease_stack = spawn(lease_cr, false);
+        spawn(lease_cr, false);
       }
       while (!lease_cr->is_locked()) {
         if (lease_cr->is_done()) {
-          ldout(cct, 5) << "lease cr failed, done early " << dendl;
+          ldout(cct, 0) << "ERROR: lease cr failed, done early " << dendl;
           set_status("lease lock failed, early abort");
           return set_cr_error(lease_cr->get_ret_status());
         }
@@ -650,7 +649,7 @@ public:
 	}
       }
 
-      drain_all_but_stack(lease_stack); /* the lease cr still needs to run */
+      drain_all_but(1); /* the lease cr still needs to run */
 
       yield {
         set_status("updating sync status");
@@ -673,7 +672,7 @@ public:
       }
       set_status("drop lock lease");
       yield lease_cr->go_down();
-      while (collect(&ret, NULL)) {
+      while (collect(&ret)) {
 	if (ret < 0) {
 	  return set_cr_error(ret);
 	}
@@ -736,7 +735,6 @@ class RGWFetchAllMetaCR : public RGWCoroutine {
   RGWShardedOmapCRManager *entries_index;
 
   RGWContinuousLeaseCR *lease_cr;
-  RGWCoroutinesStack *lease_stack;
   bool lost_lock;
   bool failed;
 
@@ -746,8 +744,7 @@ public:
   RGWFetchAllMetaCR(RGWMetaSyncEnv *_sync_env, int _num_shards,
                     map<uint32_t, rgw_meta_sync_marker>& _markers) : RGWCoroutine(_sync_env->cct), sync_env(_sync_env),
 						      num_shards(_num_shards),
-						      ret_status(0), entries_index(NULL), lease_cr(nullptr), lease_stack(nullptr),
-                                                      lost_lock(false), failed(false), markers(_markers) {
+						      ret_status(0), entries_index(NULL), lease_cr(NULL), lost_lock(false), failed(false), markers(_markers) {
   }
 
   ~RGWFetchAllMetaCR() {
@@ -792,11 +789,11 @@ public:
 	lease_cr = new RGWContinuousLeaseCR(sync_env->async_rados, sync_env->store, sync_env->store->get_zone_params().log_pool, sync_env->status_oid(),
                                             lock_name, lock_duration, this);
         lease_cr->get();
-        lease_stack = spawn(lease_cr, false);
+        spawn(lease_cr, false);
       }
       while (!lease_cr->is_locked()) {
         if (lease_cr->is_done()) {
-          ldout(cct, 5) << "lease cr failed, done early " << dendl;
+          ldout(cct, 0) << "ERROR: lease cr failed, done early " << dendl;
           set_status("failed acquiring lock");
           return set_cr_error(lease_cr->get_ret_status());
         }
@@ -871,12 +868,12 @@ public:
         }
       }
 
-      drain_all_but_stack(lease_stack); /* the lease cr still needs to run */
+      drain_all_but(1); /* the lease cr still needs to run */
 
       yield lease_cr->go_down();
 
       int ret;
-      while (collect(&ret, NULL)) {
+      while (collect(&ret)) {
 	if (ret < 0) {
 	  return set_cr_error(ret);
 	}
@@ -1253,7 +1250,6 @@ class RGWMetaSyncShardCR : public RGWCoroutine {
   boost::asio::coroutine full_cr;
 
   RGWContinuousLeaseCR *lease_cr = nullptr;
-  RGWCoroutinesStack *lease_stack = nullptr;
   bool lost_lock = false;
 
   bool *reset_backoff;
@@ -1384,12 +1380,12 @@ public:
                                             sync_env->shard_obj_name(shard_id),
                                             lock_name, lock_duration, this);
         lease_cr->get();
-        lease_stack = spawn(lease_cr, false);
+        spawn(lease_cr, false);
         lost_lock = false;
       }
       while (!lease_cr->is_locked()) {
         if (lease_cr->is_done()) {
-          ldout(cct, 5) << "lease cr failed, done early " << dendl;
+          ldout(cct, 0) << "ERROR: lease cr failed, done early " << dendl;
           drain_all();
           return lease_cr->get_ret_status();
         }
@@ -1506,12 +1502,12 @@ public:
                                               sync_env->shard_obj_name(shard_id),
                                               lock_name, lock_duration, this);
           lease_cr->get();
-          lease_stack = spawn(lease_cr, false);
+          spawn(lease_cr, false);
           lost_lock = false;
         }
         while (!lease_cr->is_locked()) {
           if (lease_cr->is_done()) {
-            ldout(cct, 5) << "lease cr failed, done early " << dendl;
+            ldout(cct, 0) << "ERROR: lease cr failed, done early " << dendl;
             drain_all();
             return lease_cr->get_ret_status();
           }
@@ -1665,13 +1661,8 @@ class RGWMetaSyncCR : public RGWCoroutine {
 
   std::mutex mutex; //< protect access to shard_crs
 
-  // TODO: it should be enough to hold a reference on the stack only, as calling
-  // RGWCoroutinesStack::wakeup() doesn't refer to the RGWCoroutine if it has
-  // already completed
   using ControlCRRef = boost::intrusive_ptr<RGWMetaSyncShardControlCR>;
-  using StackRef = boost::intrusive_ptr<RGWCoroutinesStack>;
-  using RefPair = std::pair<ControlCRRef, StackRef>;
-  map<int, RefPair> shard_crs;
+  map<int, ControlCRRef> shard_crs;
 
 public:
   RGWMetaSyncCR(RGWMetaSyncEnv *_sync_env, RGWPeriodHistory::Cursor cursor,
@@ -1729,12 +1720,12 @@ public:
             auto cr = new RGWMetaSyncShardControlCR(sync_env, pool, period_id,
                                                     mdlog, shard_id, marker,
                                                     std::move(period_marker));
-            auto stack = spawn(cr, false);
-            shard_crs[shard_id] = RefPair{cr, stack};
+            shard_crs[shard_id] = cr;
+            spawn(cr, false);
           }
         }
         // wait for each shard to complete
-        collect(&ret, NULL);
+        collect(&ret);
         drain_all();
         {
           // drop shard cr refs under lock
@@ -1766,7 +1757,7 @@ public:
     if (iter == shard_crs.end()) {
       return;
     }
-    iter->second.first->wakeup();
+    iter->second->wakeup();
   }
 };
 
@@ -2105,7 +2096,7 @@ int RGWCloneMetaLogCoroutine::state_receive_rest_response()
   int ret = http_op->wait(&data);
   if (ret < 0) {
     error_stream << "http operation failed: " << http_op->to_str() << " status=" << http_op->get_http_status() << std::endl;
-    ldout(cct, 5) << "failed to wait for op, ret=" << ret << dendl;
+    ldout(cct, 0) << "ERROR: failed to wait for op, ret=" << ret << dendl;
     http_op->put();
     http_op = NULL;
     return set_cr_error(ret);

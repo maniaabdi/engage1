@@ -2,6 +2,7 @@ if ENABLE_CLIENT
 if WITH_RADOS
 
 libjournal_la_SOURCES = \
+	journal/AsyncOpTracker.cc \
 	journal/Entry.cc \
 	journal/Future.cc \
 	journal/FutureImpl.cc \
@@ -16,12 +17,12 @@ libjournal_la_SOURCES = \
 
 noinst_LTLIBRARIES += libjournal.la
 noinst_HEADERS += \
+	journal/AsyncOpTracker.h \
 	journal/Entry.h \
 	journal/Future.h \
 	journal/FutureImpl.h \
 	journal/Journaler.h \
 	journal/JournalMetadata.h \
-	journal/JournalMetadataListener.h \
 	journal/JournalPlayer.h \
 	journal/JournalRecorder.h \
 	journal/JournalTrimmer.h \
@@ -29,7 +30,6 @@ noinst_HEADERS += \
 	journal/ObjectRecorder.h \
 	journal/ReplayEntry.h \
 	journal/ReplayHandler.h \
-	journal/Settings.h \
 	journal/Utils.h
 DENCODER_DEPS += libjournal.la
 

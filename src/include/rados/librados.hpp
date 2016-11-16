@@ -32,6 +32,7 @@ namespace librados
   class RadosClient;
   struct ListObjectImpl;
   class NObjectIteratorImpl;
+  struct cacheAioRequest; /*engage1*/
 
   typedef void *list_ctx_t;
   typedef uint64_t auid_t;
@@ -375,7 +376,6 @@ namespace librados
     void zero(uint64_t off, uint64_t len);
     void rmxattr(const char *name);
     void setxattr(const char *name, const bufferlist& bl);
-    void setxattr(const char *name, const buffer::list&& bl);
     void tmap_update(const bufferlist& cmdbl);
     void tmap_put(const bufferlist& bl);
     void clone_range(uint64_t dst_off,
@@ -989,6 +989,8 @@ namespace librados
     int aio_operate(const std::string& oid, AioCompletion *c,
 		    ObjectReadOperation *op, int flags,
 		    bufferlist *pbl);
+
+    int cache_aio_operate(const std::string& oid, cacheAioRequest *cc); /*engage1*/
 
     // watch/notify
     int watch2(const std::string& o, uint64_t *handle,

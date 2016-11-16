@@ -69,5 +69,3 @@ check_TESTPROGRAMS += unittest_compression_plugin_zlib
 
 endif # WITH_OSD
 endif # ENABLE_SERVER
-
-EXTRA_DIST += test/compressor/CMakeLists.txt
