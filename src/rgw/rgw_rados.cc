@@ -8864,7 +8864,8 @@ static void _cache_aio_completion_cb(sigval_t sigval);
 get_obj_data::get_obj_data(CephContext *_cct)
 	: cct(_cct),
 	rados(NULL), ctx(NULL),
-	n_local_cache_request(0), total_read(0), lock("get_obj_data"), data_lock("get_obj_data::data_lock"), cache_lock("get_obj_data::cache_lock"),
+	sequence(0), total_read(0), lock("get_obj_data"), data_lock("get_obj_data::data_lock"), cache_lock("get_obj_data::cache_lock"),
+	l2_lock("get_obj_data::l2_lock"),
 	client_cb(NULL),
 	throttle(cct, "get_obj_data", cct->_conf->rgw_get_obj_window_size, false) {  
 		tmp_data = new char[0x400000];
@@ -8891,21 +8892,47 @@ string get_obj_data::get_pending_oid()
 	return str;
 }
 
+int get_obj_data::add_l2_cache_io(struct librados::L2CacheRequest **pc, bufferlist *pbl, std::string oid, std::string  dest, off_t obj_ofs, off_t read_ofs, size_t len, std::string key, librados::AioCompletion *lc)
+{
+        librados::L2CacheRequest *l2request = new librados::L2CacheRequest(cct);
+	l2request->sequence = sequence; sequence+=1;
+        l2request->dest = dest;
+        l2request->ofs = obj_ofs;
+        l2request->len = len;
+	l2request->oid  = oid;
+        l2request->read_ofs = read_ofs;
+	l2request->key = key;
+	l2request->lc = lc;
+        l2request->op_data = this;
+	l2request->pbl = pbl;
+
+        ldout(cct, 0) << "INFO::REMOTE_IO :"<< dest << dendl;
+        cache_lock.Lock();
+        cache_aio_map[obj_ofs] = l2request;
+        cache_lock.Unlock();
+	*pc = l2request;
+        return 0;
+
+}
+
+
+
 int get_obj_data::add_cache_io(struct librados::cacheAioRequest **pc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs, std::string key, librados::AioCompletion *lc)
 {
-	librados::cacheAioRequest *c = new librados::cacheAioRequest;
-	c->n_local_cache_request = n_local_cache_request; n_local_cache_request+=1;
+	librados::cacheAioRequest *c = new librados::cacheAioRequest(cct);
+	c->sequence = sequence; sequence+=1;
 	c->pbl = pbl;
 	c->oid = oid;
 	c->ofs = ofs;
 	c->key = key;
 	c->lc = lc;
+	c->len = len;
 	c->read_ofs = read_ofs;
-	c->status = EINPROGRESS;
+	c->stat = EINPROGRESS;
 	c->op_data = this;
 
-	std::string location = "/mnt/ssd1/cache/" + oid;
-	struct aiocb *cb =new struct aiocb;
+	std::string location = "/mnt/raid0/cache/" + oid;
+	struct aiocb *cb = new struct aiocb;
 	memset(cb, 0, sizeof(struct aiocb));
 	cb->aio_fildes = ::open(location.c_str(), O_RDONLY);
 	if (cb->aio_fildes < 0)
@@ -8913,8 +8940,8 @@ int get_obj_data::add_cache_io(struct librados::cacheAioRequest **pc, bufferlist
 		ldout(cct, 0) << "Error: add_cache_io:: read ::open the file has return error "  << dendl;
 		return -1;
 	}
-
-	cb->aio_buf = malloc(len);
+	c->data = malloc(len);
+	cb->aio_buf = c->data;
 	cb->aio_nbytes = len;
 	cb->aio_offset = read_ofs;
 	cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
@@ -8933,7 +8960,7 @@ int get_obj_data::add_cache_io(struct librados::cacheAioRequest **pc, bufferlist
 
 int get_obj_data::cache_io_read(bufferlist *bl, int len, std::string oid) {
 
-	std::string location = "/mnt/ssd1/cache/" + oid; /* replace tmp with the correct path from config file*/
+	std::string location = "/mnt/raid0/cache/" + oid; /* replace tmp with the correct path from config file*/
 	int cache_file = -1;
 	int r = 0;
 
@@ -8969,43 +8996,44 @@ void _cache_aio_completion_cb(sigval_t sigval){
 	c->op_data->cache_aio_completion_cb(c);
 }
 
-void get_obj_data::cache_aio_completion_cb(librados::cacheAioRequest *c){
+void get_obj_data::cache_aio_completion_cb(librados::CacheRequest *c){
 
-	int status = EINPROGRESS;
-	if (!c) { /*reception_lock.Unlock(); */return; }
-	ldout(cct, 0) << "engage1: get_cache_completed_ios 1111  oid=" << c->oid << " status:" << c->status << dendl;
-
-	c->lock.Lock();
-	if (c->status != EINPROGRESS) { // some one else is processing this request completion
-		c->lock.Unlock();
-		if (c->status == ECANCEL){
-			cache_unmap_io(c->ofs);
-			c->release();
-		}
-		return;
-	}
-	c->status = aio_error(c->paiocb); status = c->status;
-	c->lock.Unlock();
-
-	if (status == 0){
+	//ldout(cct, 0) << "engage1: cache_aio_completion_cb, oid: "<< c->oid << ",size "<< c->len <<dendl;
+	int status = c->status();
+	//ldout(cct, 0) << "engage1: in aio_completion, oid: "<< c->oid << ",size "<< c->len <<dendl;
+	if (status == ECANCEL) {
 		cache_unmap_io(c->ofs);
-		c->pbl->append((char*)c->paiocb->aio_buf, c->paiocb->aio_nbytes);
-		c->onack->complete(0);
-		c->release();
+		ldout(cct, 0) << "engage1: cache_aio_request: status = ECANCLE" << dendl;
+		return;
+	} else if (status == 0) {
+	//	ldout(cct, 0) << "engage1: cache_aio_completion_cb, oid:" << c->oid << ", len:" << std::hex << c->len << "plb->len" << std::hex << c->pbl->length() << dendl;
+
+		cache_unmap_io(c->ofs);
+		l2_lock.Lock();
+		 ldout(cct, 0) << "engage1: cache_aio_completion_cb,inside the finish lock- oid : " << c->oid << ", len:" << std::hex << c->len << "plb->len" << std::hex << c->pbl->length()  << dendl;
+		c->finish();
+
+		l2_lock.Unlock();
+
 	}
 }
 
+
+
+
 void get_obj_data::cache_unmap_io(off_t ofs){
+//	struct librados::CacheRequest *request;
 	cache_lock.Lock();
-	map<off_t, struct librados::cacheAioRequest *>::iterator iter = cache_aio_map.find(ofs);
+	map<off_t, struct librados::CacheRequest *>::iterator iter = cache_aio_map.find(ofs);
 	if (iter == cache_aio_map.end()) {
 		cache_lock.Unlock();
 		return;
 	}
+//	request =  iter->second;
 	cache_aio_map.erase(ofs);
 	cache_lock.Unlock();
+//	free(request);
 }
-
 /*engage1*/
 
 bool get_obj_data::is_cancelled() {
@@ -9091,9 +9119,9 @@ void get_obj_data::cancel_io(off_t ofs) {
 void get_obj_data::cancel_all_io() {
 	ldout(cct, 20) << "get_obj_data::cancel_all_io()" << dendl;
 	Mutex::Locker l(lock);
-	for (map<off_t, librados::cacheAioRequest *>::iterator iter = cache_aio_map.begin(); /*engage1*/
+	for (map<off_t, librados::CacheRequest *>::iterator iter = cache_aio_map.begin(); /*engage1*/
 			iter != cache_aio_map.end(); ++iter) {
-		librados::cacheAioRequest  *c = iter->second;
+		librados::CacheRequest  *c = iter->second;
 		ldout(cct, 20) << "get_obj_data::cancel_all_io() oid=" << std::hex << c->oid << dendl;
 		c->cancel_io();
 	}
@@ -9108,6 +9136,7 @@ int get_obj_data::get_complete_ios(off_t ofs, list<bufferlist>& bl_list) {
 	Mutex::Locker l(lock);
 
 	map<off_t, get_obj_io>::iterator liter = io_map.begin();
+	ldout(cct, 20) << "get_complete_ios wait for oid:"<< pending_oid_list.front() << ", offset:"<< liter->first << ", recieved:" << ofs << dendl;
 
 	if (liter == io_map.end() ||
 			liter->first != ofs) {

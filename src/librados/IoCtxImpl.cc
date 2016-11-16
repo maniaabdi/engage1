@@ -751,8 +751,9 @@ int librados::IoCtxImpl::aio_operate_read(const object_t &oid,
 }
 
 /*engage1*/
-int librados::IoCtxImpl::cache_aio_operate_read(const object_t &oid, AioCompletionImpl *c, cacheAioRequest *cc)
+int librados::IoCtxImpl::cache_aio_operate_read(const object_t &oid, AioCompletionImpl *c, CacheRequest *cc)
 {
+    ldout(client->cct, 20) << "Engage1: cache_aio_operate_read" << dendl;
     Context *onack = new C_aio_Ack(c);
     c->is_read = true;
     c->io = this;

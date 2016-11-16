@@ -1492,7 +1492,7 @@ int librados::IoCtx::aio_operate(const std::string& oid, AioCompletion *c,
 }
 
 /*engage1*/
-int librados::IoCtx::cache_aio_operate(const std::string& oid, cacheAioRequest *cc)
+int librados::IoCtx::cache_aio_operate(const std::string& oid, CacheRequest *cc)
 {
         if (!cc) return -1;
         object_t obj(oid);

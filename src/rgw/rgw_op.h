@@ -168,6 +168,15 @@ public:
 
   int get_data_cb(bufferlist& bl, off_t ofs, off_t len);
 
+  /*engage1*/
+  int submit_l2_request(string dest, off_t obj_ofs, size_t len, off_t read_ofs, void* args, size_t (*write_cb)(void *, size_t, size_t, void *)){
+        return s->submit_http_req(dest, obj_ofs, len, read_ofs, args, write_cb);
+  }
+  int get_req_info(string dest, string& uri, string& auth_token) {
+	 return s->get_req_info(dest, uri, auth_token);
+}
+  /*engage1*/ 
+
   virtual int get_params() = 0;
   virtual int send_response_data_error() = 0;
   virtual int send_response_data(bufferlist& bl, off_t ofs, off_t len) = 0;
@@ -176,6 +185,7 @@ public:
   virtual RGWOpType get_type() { return RGW_OP_GET_OBJ; }
   virtual uint32_t op_mask() { return RGW_OP_TYPE_READ; }
   virtual bool need_object_expiration() { return false; }
+ 
 };
 
 class RGWGetObj_CB : public RGWGetDataCB
@@ -188,6 +198,17 @@ public:
   int handle_data(bufferlist& bl, off_t bl_ofs, off_t bl_len) {
     return op->get_data_cb(bl, bl_ofs, bl_len);
   }
+
+  /*engage1*/
+  int submit_l2_request(string dest, off_t obj_ofs, size_t len, off_t read_ofs, void* args, size_t (*write_cb)(void *, size_t, size_t, void *)){
+	return (op->submit_l2_request(dest, obj_ofs, len, read_ofs, args, write_cb));
+  }
+
+  int get_req_info(string dest, string& uri, string& auth_token) {
+         return (op->get_req_info(dest, uri, auth_token));
+  }
+  /*engage1*/
+
 };
 
 class RGWBulkDelete : public RGWOp {

@@ -31,6 +31,7 @@ librgw_la_SOURCES = \
 	rgw/rgw_basic_types.cc \
 	rgw/rgw_bucket.cc \
 	rgw/rgw_cache.cc \
+	rgw/rgw_l2_requester.cc \
 	rgw/rgw_client_io.cc \
 	rgw/rgw_common.cc \
 	rgw/rgw_cors.cc \
@@ -190,6 +191,7 @@ noinst_HEADERS += \
 	rgw/rgw_token.h \
 	rgw/rgw_basic_types.h \
 	rgw/rgw_cache.h \
+	rgw/rgw_l2_requester.h \
 	rgw/rgw_common.h \
 	rgw/rgw_cors.h \
 	rgw/rgw_cors_s3.h \

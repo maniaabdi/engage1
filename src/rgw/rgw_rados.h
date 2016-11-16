@@ -26,6 +26,7 @@
 #include "rgw_meta_sync_status.h"
 #include "rgw_period_puller.h"
 #include "common/Throttle.h" /*engage1*/
+//#include "rgw_l2_requester.h" /*engage1*/
 
 class RGWWatcher;
 class SafeTimer;
@@ -1880,7 +1881,7 @@ WRITE_CLASS_ENCODER(RGWZoneGroupPlacementTarget)
 		}
 
 		int append_atomic_test(RGWObjectCtx *rctx, rgw_obj& obj,
-                                librados::ObjectOperation& op, RGWObjState **state);
+				librados::ObjectOperation& op, RGWObjState **state);
 		void set_context(CephContext *_cct) {
 			cct = _cct;
 		}
@@ -3041,35 +3042,104 @@ WRITE_CLASS_ENCODER(RGWZoneGroupPlacementTarget)
 	struct get_obj_data;
 
 	/*engage1*/
-	struct librados::cacheAioRequest {
-		Mutex lock;
-		int n_local_cache_request;
-		int status;
-		struct aiocb *paiocb;
-		bufferlist *pbl;
-		struct get_obj_data *op_data;
-		std::string oid;
-		off_t ofs;
-		librados::AioCompletion *lc;
-		std::string key;
-		off_t read_ofs;
-		Context *onack;
-		cacheAioRequest() : lock("CacheAio"), n_local_cache_request(0), status(-1), paiocb(NULL), pbl(NULL), op_data(NULL), ofs(0), lc(NULL), read_ofs(0) {};
 
-		void release (){
-			lock.Lock();
-			free((void *)paiocb->aio_buf); paiocb->aio_buf=NULL;
-			::close(paiocb->aio_fildes);
-			lock.Unlock();
-		}
+//	namespace librados {
+		class librados::CacheRequest {
 
-		void cancel_io(){
-			lock.Lock();
-			status = ECANCEL;
-			lock.Unlock();
-		}
-	};
+			public: 
+				Mutex lock;
+				int sequence;
+				bufferlist *pbl;
+				struct get_obj_data *op_data;
+				std::string oid;
+				off_t ofs;
+				off_t len;
+				librados::AioCompletion *lc;
+				std::string key;                   
+				off_t read_ofs;
+				Context *onack;
+				CephContext *cct;
+				CacheRequest(CephContext *_cct) : lock("CacheRequest"), sequence(0), pbl(NULL), op_data(NULL), ofs(0), lc(NULL), read_ofs(0), cct(_cct) {};
+				virtual ~CacheRequest(){};
+				virtual void release()=0;
+				virtual void cancel_io()=0;
+				virtual int status()=0;
+				virtual void finish()=0;
 
+		};
+
+
+		struct librados::cacheAioRequest : public librados::CacheRequest{
+			int stat;
+			void *data;
+			struct aiocb *paiocb;
+			cacheAioRequest(CephContext *_cct) :  librados::CacheRequest(_cct), stat(-1), data(NULL), paiocb(NULL) {}
+			~cacheAioRequest(){}
+			void release (){
+				lock.Lock();
+				paiocb->aio_buf = NULL;
+				free(data);
+				data = NULL;			
+				::close(paiocb->aio_fildes);
+				free(paiocb); 
+				lock.Unlock();
+				delete this;
+			}
+
+			void cancel_io(){
+				lock.Lock();
+				stat = ECANCEL;
+				lock.Unlock();
+			}
+
+			int status(){
+
+				lock.Lock();
+				if (stat != EINPROGRESS) { // some one else is processing this request completion
+					lock.Unlock();
+					if (stat == ECANCEL){
+						release();
+						return ECANCEL;
+					}
+				}
+				stat = aio_error(paiocb);
+				lock.Unlock();
+				return stat;
+			}
+		
+			void finish(){
+
+				pbl->append((char*)data, paiocb->aio_nbytes);
+				onack->complete(0);
+				release();
+			}
+		};
+
+
+		struct librados::L2CacheRequest : public librados::CacheRequest {
+			size_t read;
+			string dest; 
+			L2CacheRequest(CephContext *_cct) : librados::CacheRequest(_cct), read(0) {}
+			~L2CacheRequest(){}
+			void release (){
+				lock.Lock();
+				lock.Unlock();
+			}
+
+			void cancel_io(){
+				lock.Lock();
+				lock.Unlock();
+			}
+			void finish(){
+				onack->complete(0);
+				release();
+			}
+
+			int status(){
+				return 0;
+			}
+		};
+//	};
 
 	struct get_obj_aio_data {
 		struct get_obj_data *op_data;
@@ -3090,14 +3160,15 @@ WRITE_CLASS_ENCODER(RGWZoneGroupPlacementTarget)
 		map<off_t, get_obj_io> io_map;
 		map<off_t, librados::AioCompletion *> completion_map;
 		std::list<string> pending_oid_list; /*engage1*/
-		std::map<off_t, struct librados::cacheAioRequest*> cache_aio_map; /* keep track of async ios */
-		int n_local_cache_request;
+		std::map<off_t, librados::CacheRequest*> cache_aio_map; /* keep track of async ios */
+		int sequence;
 		char *tmp_data;
 
 		uint64_t total_read;
 		Mutex lock;
 		Mutex data_lock;
 		Mutex cache_lock; /*engage1*/
+		Mutex l2_lock; /*engage1*/
 		list<get_obj_aio_data> aio_data;
 		RGWGetDataCB *client_cb;
 		atomic_t cancelled;
@@ -3120,7 +3191,8 @@ WRITE_CLASS_ENCODER(RGWZoneGroupPlacementTarget)
 		/*engage1*/
 		std::string get_pending_oid();
 		int add_cache_io(struct librados::cacheAioRequest **cc, bufferlist *pbl, std::string oid, unsigned int len, off_t ofs, off_t read_ofs,std::string key, librados::AioCompletion *lc);
-		void cache_aio_completion_cb(struct librados::cacheAioRequest *c);
+		int add_l2_cache_io(struct librados::L2CacheRequest **cc, bufferlist *pbl, std::string oid, std::string  dest, off_t obj_ofs, off_t read_ofs, size_t len, std::string key, librados::AioCompletion *lc);
+		void cache_aio_completion_cb(librados::CacheRequest *c);
 		void cache_unmap_io(off_t ofs);
 		int cache_aio_read(librados::cacheAioRequest *cc);
 		int cache_io_read(bufferlist *bl, int len, std::string oid);

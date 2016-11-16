@@ -19,7 +19,6 @@
 #include "common/strtol.h"
 #include "include/str_list.h"
 #include "auth/Crypto.h"
-
 #include <sstream>
 
 #define dout_subsys ceph_subsys_rgw
@@ -224,6 +223,44 @@ req_state::~req_state() {
   delete object_acl;
   delete aws4_auth;
 }
+
+/*engage1*/
+int req_state::submit_http_req(string dest, off_t obj_ofs, size_t len, off_t read_ofs, void* args, size_t (*write_cb)(void *, size_t, size_t, void *)){	
+	CURLcode res;
+	CURL *curl= curl_easy_init();
+        std::string range = std::to_string(obj_ofs + read_ofs)+ "-"+ std::to_string(obj_ofs + read_ofs + len - 1);//start_str.str() + "-"+ end_str.str();
+	std::string auth_token = "X-Auth-Token: " + std::string(os_auth_token);
+	std::string  uri = "http://" + dest + info.request_uri;
+	
+        if(curl) {
+                struct curl_slist *chunk = NULL;
+                chunk = curl_slist_append(chunk, auth_token.c_str());
+                curl_easy_setopt(curl, CURLOPT_RANGE, range.c_str());
+                res = curl_easy_setopt(curl, CURLOPT_HTTPHEADER, chunk); //set headers
+                curl_easy_setopt(curl, CURLOPT_URL, uri.c_str());
+                curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); //for redirection of the url
+
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, args);
+                res = curl_easy_perform(curl); //run the curl command
+                curl_easy_cleanup(curl);
+        }
+
+        if(res != CURLE_OK)
+        {
+		dout(0) << "Engage1: curl_easy_perform() failed " << curl_easy_strerror(res) << dendl;
+        }
+
+	return 0;
+} 
+
+int req_state::get_req_info(string dest, string &uri, string &auth_token){
+
+        auth_token = "X-Auth-Token: " + std::string(os_auth_token);
+        uri = "http://" + dest + info.request_uri;
+}
+
+/*engage1*/
 
 struct str_len {
   const char *str;

@@ -7,9 +7,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-//#include <curl/curl.h> /*engage1*/
-//#include <curl/types.h> /*engage1*/
-//#include <curl/easy.h> /*engage1*/
 
 #define dout_subsys ceph_subsys_rgw
 
@@ -302,54 +299,28 @@ void ObjectCache::chain_cache(RGWChainedCache *cache) {
 }
 
 /*engage1*/
-int cacheAioWriteRequest::create_io(bufferlist& bl, unsigned int len, string oid) {
-	std::string location = "/mnt/raid0/cache/" + oid;
-	int r = 0;
-
-	cb = new struct aiocb;
-	mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
-	memset(cb, 0, sizeof(struct aiocb));
-	r = fd = ::open(location.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
-	if (fd < 0)
-	{
-		ldout(cct, 0) << "ERROR: create_aio_write_request: open file failed, " << errno << "\tlocation: " << location.c_str() <<dendl;
-		goto done;
-	}
-	cb->aio_fildes = fd;
-
-	data = malloc(len);
-	if(!data)
-	{
-		ldout(cct, 0) << "ERROR: create_aio_write_request: memory allocation failed" << dendl;
-		goto close_file;
-	}
-	cb->aio_buf = data;
-	memcpy((void *)data, bl.c_str(), len);
-	cb->aio_nbytes = len;
-	goto done;	
-free_buf:
-	cb->aio_buf = NULL;
-	free(data);
-	data = NULL;
-
-close_file:
-	::close(fd);
-done:
-	return r;
-}
-
 DataCache::DataCache ()
 	: index(0), lock("DataCache"), cache_lock("DataCache::Mutex"), req_lock("DataCache::req"), eviction_lock("DataCache::EvictionMutex"), cct(NULL), io_type(ASYNC_IO), free_data_cache_size(0), outstanding_write_size (0)
-{
-	tp = new L2CacheThreadPool(32);
+{ 
 }
 
-/*ugur to do make it work buggggg */
+static void _init_l2_request_cb(completion_t cb, void *arg)
+{
+        librados::l2CacheRequest *l2request = (librados::l2CacheRequest *)arg;
+        l2request->datacache->init_l2_request_cb(cb, arg);
+}
+
+
+
+void DataCache::init_l2_request_cb(completion_t c, void *arg)
+{
+	librados::l2CacheRequest *l2request = (librados::l2CacheRequest *)arg;
+	dout(0) << "L2Request: " << l2request->oid << dendl;
+}
+
 int DataCache::io_write(bufferlist& bl ,unsigned int len, std::string oid) {
 
-	ChunkDataInfo*  chunk_info = new ChunkDataInfo;
-
-	std::string location = "/mnt/raid0/cache/" + oid; /* replace tmp with the correct path from config file*/
+	std::string location = "/mnt/ssd1/cache/" + oid; /* replace tmp with the correct path from config file*/
 	FILE *cache_file = 0;
 	int r = 0;
 
@@ -366,21 +337,6 @@ int DataCache::io_write(bufferlist& bl ,unsigned int len, std::string oid) {
 	}
 
 	fclose(cache_file);
-
-	/*update cahce_map entries for new chunk in cache*/
-	cache_lock.Lock();
-	chunk_info->oid = oid;
-	chunk_info->set_ctx(cct);
-	chunk_info->size = len;
-	cache_map.insert(pair<string, ChunkDataInfo*>(oid, chunk_info));
-	cache_lock.Unlock();
-
-	/*update free size*/
-	//eviction_lock.Lock();
-	//free_data_cache_size -= r;
-	//outstanding_write_size -=  len;
-	//eviction_lock.Unlock();
-
 	return r;
 }
 
@@ -393,85 +349,73 @@ void _cache_aio_write_completion_cb(sigval_t sigval) {
 
 void DataCache::cache_aio_write_completion_cb(cacheAioWriteRequest *c){
 
-	ChunkDataInfo  *chunk_info = NULL;
+	ChunkDataInfo  chunk_info;
 
-	dout(0) << "engage: cache_aio_write_completion_cb oid:" << c->oid <<dendl;
+	::close(c->cb->aio_fildes);
+	free((void *)c->cb->aio_buf);
+	c->cb->aio_buf = NULL;
 
-	/* free allocated memory, close file descriptor*/
-	//::close(c->cb->aio_fildes);
-	//free((void *)c->cb->aio_buf);	
-	//	c->cb->aio_buf = NULL;
-
-	/*update cahce_map entries for new chunk in cache*/
 	cache_lock.Lock();
 	outstanding_write_list.remove(c->oid);
-	chunk_info = new ChunkDataInfo;
-	chunk_info->oid = c->oid;
-	chunk_info->set_ctx(cct);
-	chunk_info->size = c->cb->aio_nbytes;
-	cache_map.insert(pair<string, ChunkDataInfo*>(c->oid, chunk_info));
+	chunk_info.oid = c->oid;
+	chunk_info.set_ctx(cct);
+	chunk_info.size = c->cb->aio_nbytes;
+	cache_map.insert(pair<string, ChunkDataInfo>(c->oid, chunk_info));
+	map<string, ChunkDataInfo>::iterator iter = cache_map.find(c->oid);
+	iter = cache_map.find(c->oid);
 	cache_lock.Unlock();
-
-	/*update free size*/
 	eviction_lock.Lock();
 	free_data_cache_size -= c->cb->aio_nbytes;
 	outstanding_write_size -=  c->cb->aio_nbytes;
 	eviction_lock.Unlock();
-	c->release();
-	//delete c;
 }
 
 int DataCache::create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid){
 
-	struct cacheAioWriteRequest *wr= new struct cacheAioWriteRequest(cct);
+	struct cacheAioWriteRequest *wr= new struct cacheAioWriteRequest;
 	int r=0;
-	if (wr->create_io(bl, len, oid) < 0) {
-		dout(0) << "engage: Error create_aio_write_request" << dendl;
+	std::string location = "/mnt/ssd1/cache/" + oid;
+
+	struct aiocb *cb =new struct aiocb;
+	mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+	memset(cb, 0, sizeof(struct aiocb));
+	cb->aio_fildes = ::open(location.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
+	if ((r = cb->aio_fildes) < 0)
+	{
+		dout(0) << "ERROR: create_aio_write_request: open file failed, " << errno << "\tlocation: " << location.c_str() <<dendl;
 		goto done;
 	}
-	//	std::string location = "/mnt/raid0/cache/" + oid;
 
-	//	struct aiocb *cb =new struct aiocb;
-	//	mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
-	//	memset(cb, 0, sizeof(struct aiocb));
-	//	cb->aio_fildes = ::open(location.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
-	//	if ((r = cb->aio_fildes) < 0)
-	//	{
-	//		dout(0) << "ERROR: create_aio_write_request: open file failed, " << errno << "\tlocation: " << location.c_str() <<dendl;
-	//		goto done;
-	//	}
-	//
-	//	cb->aio_buf = malloc(len);
-	//	if(!cb->aio_buf)
-	//	{
-	//		dout(0) << "ERROR: create_aio_write_request: memory allocation failed" << dendl;
-	//		goto close_file;
-	//	}
-	//
-	//	memcpy((void *)cb->aio_buf, bl.c_str(),len);
-	//	cb->aio_nbytes = len;
-	wr->cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
-	wr->cb->aio_sigevent.sigev_notify_function = _cache_aio_write_completion_cb;
-	wr->cb->aio_sigevent.sigev_notify_attributes = NULL;
-	wr->cb->aio_sigevent.sigev_value.sival_ptr = (void*)wr;
+	cb->aio_buf = malloc(len);
+	if(!cb->aio_buf)
+	{
+		dout(0) << "ERROR: create_aio_write_request: memory allocation failed" << dendl;
+		goto close_file;
+	}
+
+	memcpy((void *)cb->aio_buf, bl.c_str(),len);
+	cb->aio_nbytes = len;
+	cb->aio_sigevent.sigev_notify = SIGEV_THREAD;
+	cb->aio_sigevent.sigev_notify_function = _cache_aio_write_completion_cb;
+	cb->aio_sigevent.sigev_notify_attributes = NULL;
+	cb->aio_sigevent.sigev_value.sival_ptr = (void*)wr;
+
+	wr->cb = cb;
 	wr->oid = oid;
 	wr->priv_data = this;
 
-	if((r= ::aio_write(wr->cb)) != 0) {
+	if((r= ::aio_write(cb)) != 0) {
 		dout( 0) << "ERROR: aio_write "<< r << dendl;
-		goto error;
+		goto free_buf;
 	}
+
 	return 0;
 
-	//free_buf:
-	//	free((void*)cb->aio_buf);
-	//close_file:
-	//	::close(cb->aio_fildes);
-	//done:
-error:
-	wr->release();
+free_buf:
+	free((void*)cb->aio_buf);
+close_file:
+	::close(cb->aio_fildes);
 done:
-//	delete wr;
 	return r;
 }
 
@@ -480,9 +424,8 @@ void DataCache::put(bufferlist& bl, unsigned int len, std::string oid){
 	int r = 0;
 	size_t freed_size = 0, _free_data_cache_size = 0, _outstanding_write_size = 0;
 
-	dout(0) << "Engage1: We are in DataCache::put() and oid is: " << oid <<dendl;
 	cache_lock.Lock();
-	map<string, ChunkDataInfo *>::iterator iter = cache_map.find(oid);
+	map<string, ChunkDataInfo>::iterator iter = cache_map.find(oid);
 	if (iter != cache_map.end()) {
 		cache_lock.Unlock();
 		dout(0) << "Engage1: Warning: data already cached, no rewirte" << dendl;
@@ -508,7 +451,7 @@ void DataCache::put(bufferlist& bl, unsigned int len, std::string oid){
 			return;
 		freed_size += r;
 	}
-	//      io_write(bl, len, oid);
+
 	r = create_aio_write_request(bl, len, oid);
 	if (r < 0) {
 		cache_lock.Lock();
@@ -527,9 +470,9 @@ void DataCache::put(bufferlist& bl, unsigned int len, std::string oid){
 bool DataCache::get(string oid) { 
 
 	bool exist = false;
-	string location = "/mnt/raid0/cache/" + oid; 
+	string location = "/mnt/ssd1/cache/" + oid; 
 	cache_lock.Lock();
-	map<string, ChunkDataInfo*>::iterator iter = cache_map.find(oid);
+	map<string, ChunkDataInfo>::iterator iter = cache_map.find(oid);
 	if (!(iter == cache_map.end())){
 		// check inside cache whether file exists or not!!!! then make exist true;
 		if(access(location.c_str(), F_OK ) != -1 ) { // file exists
@@ -559,54 +502,53 @@ size_t DataCache::random_eviction(){
 	}
 	srand (time(NULL));
 	random_index = rand()%n_entries;
-	map<string, ChunkDataInfo*>::iterator iter = cache_map.begin();
+	map<string, ChunkDataInfo>::iterator iter = cache_map.begin();
 	std::advance(iter, random_index);
 	del_oid = iter->first;
-	del_entry =  iter->second;
+	del_entry =  &iter->second;
 	dout( 0) << "INFO::random_eviction index:"<< random_index << ", free size:0x" << std::hex << del_entry->size << dendl;
 	freed_size = del_entry->size;
-	free(del_entry);
-	del_entry = NULL;
 	cache_map.erase(del_oid); // oid
 	cache_lock.Unlock();
 
-	location = "/mnt/raid0/cache/" + del_oid; /*replace tmp with the correct path from config file*/
+	location = "/mnt/ssd1/cache/" + del_oid; /*replace tmp with the correct path from config file*/
 	remove(location.c_str());
 	return freed_size;
 }
 
-void DataCache::remote_io(struct librados::L2CacheRequest *l2request ) {
-	dout( 0) << "Engage1: Add task to remote IO" << dendl;
-	tp->addTask(new HttpL2Request(l2request, cct));
+void DataCache::remote_io(string uri) {
+	//Creare request structure
+	//Add a sequence number to it + oid
+	//send notification to th efinisher q
+	//Assign both datacache and th ecall back function
+}
+
+int DataCache::hash_uri(string uri) {
+	return 0;
 }
 
 
-vector<string> split(const string &s, char * delim) {
-	stringstream ss(s);
-	string item;
-	vector<string> tokens;
-	while (getline(ss, item, (*delim))) {
-		tokens.push_back(item);
-	}
-	return tokens;
+L2RequestNotification::L2RequestNotification(l2CacheRequest *_c) : c(_c)
+{
+	//assert(!c->io);
+	//c->get();
 }
 
-string DataCache::hash_uri(string oid) {
-	std::string::size_type sz;   // alias of size_t
-	vector<string> sv = split(oid, "_");
-	int hash = std::stoi(sv[sv.size()-1], &sz);
-	int mod= 4;
-	switch (hash%mod)
-	{
-		case 0:
-			return "192.168.67.7:80";
-		case 1:
-			return "192.168.67.8:80";
-		case 2:
-			return "192.168.67.9:80";
-		case 3:
-			return "192.168.67.10:80";
-	};
 
-	return HASH_LOCAL;
+
+
+void L2RequestNotification::finish(int r)
+{
+	rados_callback_t cb = c->callback_init_request;
+	void *cb_arg = c->callback_request_arg;
+	cb(c, cb_arg);
+	c->lock.Lock();
+	c->callback_init_request = NULL;
+	c->put_unlock();
 }
+
+
+
+
+
+

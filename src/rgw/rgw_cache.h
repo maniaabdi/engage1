@@ -7,13 +7,17 @@
 #include "rgw_rados.h"
 #include <string>
 #include <map>
+
 #include <unistd.h> /*engage1*/
 #include <signal.h> /*engage1*/
+#include "include/Context.h" /*engage1*/
 #include "include/types.h"
 #include "include/utime.h"
 #include "include/assert.h"
 #include "common/RWLock.h"
 #include "include/lru.h" /*engage1*/
+//#include "common/Finisher.h" /*engage1*/
+#include "rgw_l2_requester.h" /*engage1*/
 
 enum {
 	UPDATE_OBJ,
@@ -29,7 +33,7 @@ enum {
 /*engage1*/
 #define BILLION 1000000000L
 #define SIG_ENG SIGRTMIN+5
-#define HASH_LOCAL 0
+#define HASH_LOCAL "192.168.67.7:80"
 /*engage1*/
 
 #define mydout(v) lsubdout(T::cct, rgw, v)
@@ -57,14 +61,29 @@ struct ChunkDataInfo : public LRUObject {
 
 struct cacheAioWriteRequest{
 	string oid;
+	void *data;
+	int fd;
 	struct aiocb *cb;
 	DataCache *priv_data;
+	CephContext *cct;
+	
+	cacheAioWriteRequest(CephContext *_cct) : cct(_cct) {}
+	int create_io(bufferlist& bl, unsigned int len, string oid);
+	
+	void release() {
+		::close(fd);
+		cb->aio_buf = NULL;
+		free(data);
+		data = NULL;
+		free(cb);
+		free(this);
+	}
 };
 
 struct DataCache {
 
 	private:
-		std::map<string, ChunkDataInfo> cache_map;
+		std::map<string, ChunkDataInfo*> cache_map;
 		std::list<string> outstanding_write_list;
 		int index;
 		RWLock lock;
@@ -81,6 +100,8 @@ struct DataCache {
 		struct sigaction action;
 		size_t free_data_cache_size;
 		size_t outstanding_write_size;
+		L2CacheThreadPool *tp;
+
 
 	private:
 		void add_io();
@@ -95,9 +116,12 @@ struct DataCache {
 		int create_aio_write_request(bufferlist& bl, unsigned int len, std::string oid);
 		void cache_aio_write_completion_cb(cacheAioWriteRequest *c);
 		size_t random_eviction();
-		int hash_uri(string uri);
-		void remote_io(string uri);
-		void set_ctx(CephContext *_cct) {
+		string hash_uri(string dest);
+		void remote_io(struct librados::L2CacheRequest *l2request); 
+		void init_l2_request_cb(librados::completion_t c, void *arg);
+
+		void l2_http_request(off_t ofs , off_t len, std::string oid);
+		void init(CephContext *_cct) {
 			cct = _cct;
 			free_data_cache_size = cct->_conf->rgw_data_cache_size;
 
@@ -278,7 +302,8 @@ class RGWCache  : public T
 	int init_rados() {
 		int ret;
 		cache.set_ctx(T::cct);
-		data_cache.set_ctx(T::cct); /*engage1*/
+		data_cache.init(T::cct); /*engage1*/
+		//data_cache.forwarder->start();
 		ret = T::init_rados();
 		if (ret < 0)
 			return ret;
@@ -677,7 +702,7 @@ int RGWCache<T>::get_obj_iterate_cb(RGWObjectCtx *ctx, RGWObjState *astate,
 	rgw_bucket bucket;
 	bufferlist *pbl;
 	librados::AioCompletion *c;
-	string uri; /*engage1*/
+	string dest = ""; /*engage1*/
 	int r;
 
 	if (is_head_obj) {
@@ -687,7 +712,7 @@ int RGWCache<T>::get_obj_iterate_cb(RGWObjectCtx *ctx, RGWObjState *astate,
 			return r;
 
 		if (astate &&
-			obj_ofs < astate->data.length()) {
+				obj_ofs < astate->data.length()) {
 			unsigned chunk_len = min((uint64_t)astate->data.length() - obj_ofs, (uint64_t)len);
 
 			d->data_lock.Lock();
@@ -721,26 +746,31 @@ int RGWCache<T>::get_obj_iterate_cb(RGWObjectCtx *ctx, RGWObjState *astate,
 	 */
 	d->add_io(obj_ofs, len, oid, &pbl, &c);
 	mydout(20) << "engage1 rados->get_obj_iterate_cb oid=" << oid << " obj-ofs=" << obj_ofs << " read_ofs=" << read_ofs << " len=" << len << dendl;
-	librados::IoCtx io_ctx(d->io_ctx);
+	librados::IoCtx io_ctx(d->io_ctx); // Get a pointer to Librados
+	io_ctx.locator_set_key(key); 
 	if (data_cache.get(oid)) {
 		librados::cacheAioRequest *cc;
+		mydout(0) << "engage1: before add cahce_io" << dendl;
 		d->add_cache_io(&cc, pbl, oid, len, obj_ofs, read_ofs, key, c);
 		r = io_ctx.cache_aio_operate(oid, cc);
 		r = d->cache_aio_read(cc);
+		mydout(0) << "engage1: after cache_aio_read" << dendl;
 		if (r != 0 ){
 			mydout(0) << "Error cache_aio_read failed err=" << r << dendl;
 		}
 
-	} else if (data_cache.hash_uri(oid) == HASH_LOCAL) {
-		op.read(read_ofs, len, pbl, NULL);
-		io_ctx.locator_set_key(key);
-		r = io_ctx.aio_operate(oid, c, &op, NULL);
+	} else if ((dest=data_cache.hash_uri(oid)).compare(HASH_LOCAL) == 0){
+//	} else if (true){
+		op.read(read_ofs, len, pbl, NULL); //create a series of read operations
+		r = io_ctx.aio_operate(oid, c, &op, NULL); // we move from rados to librados (we are passing read operation, objectid and aio_complition) this happens for every single chunck.
 		mydout(20) << "rados->aio_operate r=" << r << " bl.length=" << pbl->length() << dendl;
 		if (r < 0) //***********************************************/
 			goto done_err;
-
 	} else {
-		data_cache.remote_io(uri);
+		librados::L2CacheRequest *cc;
+		d->add_l2_cache_io(&cc, pbl,  oid, dest, obj_ofs, read_ofs, len, key, c);
+		r = io_ctx.cache_aio_operate(oid, cc); 
+		data_cache.remote_io(cc);
 	}
 
 	// Flush data to client if there is any
@@ -771,8 +801,11 @@ int RGWCache<T>::flush_read_list(struct get_obj_data *d){
 	list<bufferlist>::iterator iter;
 	for (iter = l.begin(); iter != l.end(); ++iter) {
 		bufferlist& bl = *iter;
+		//		bufferlist *pbl = &bl;
+		//		mydout(0) << "enagage 1: in flush_read_list, size:" << bl.length() << dendl;
 		if (bl.length() == 0x400000) /*engage1*/
 			data_cache.put(bl, bl.length(), d->get_pending_oid());
+//		d->get_pending_oid();
 		r = d->client_cb->handle_data(bl, 0, bl.length());
 		if (r < 0) {
 			mydout(0) << "ERROR: flush_read_list(): d->client_c->handle_data() returned " << r << dendl;

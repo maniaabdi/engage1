@@ -32,7 +32,10 @@ namespace librados
   class RadosClient;
   struct ListObjectImpl;
   class NObjectIteratorImpl;
+  
+  class CacheRequest; /*engage1*/
   struct cacheAioRequest; /*engage1*/
+  struct L2CacheRequest; /*engage1*/
 
   typedef void *list_ctx_t;
   typedef uint64_t auid_t;
@@ -990,7 +993,7 @@ namespace librados
 		    ObjectReadOperation *op, int flags,
 		    bufferlist *pbl);
 
-    int cache_aio_operate(const std::string& oid, cacheAioRequest *cc); /*engage1*/
+    int cache_aio_operate(const std::string& oid, CacheRequest *cc); /*engage1*/
 
     // watch/notify
     int watch2(const std::string& o, uint64_t *handle,
