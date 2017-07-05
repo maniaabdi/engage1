@@ -8872,6 +8872,7 @@ get_obj_data::get_obj_data(CephContext *_cct)
 	}
 
 get_obj_data::~get_obj_data() { 
+	delete tmp_data;
 } 
 
 void get_obj_data::set_cancelled(int r) {
